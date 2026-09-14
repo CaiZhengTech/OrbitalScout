@@ -36,7 +36,7 @@ The system answers **where to look**, not **what is wrong**. Disease and pest id
 |---|---|
 | Geography | One county, US Corn Belt (Iowa or Illinois) |
 | Crops | Corn and soybean |
-| Years | 5 growing seasons minimum; most recent year held out |
+| Years | All seasons with Sentinel-2 L2A coverage of the AOI, 2017 onward; the last three held out in rotation |
 | Season window | Roughly May through September, bounded by phenology not calendar |
 | Zone size | 10m, matching Sentinel-2 native resolution |
 | Field definition | USDA Crop Sequence Boundaries polygons |
@@ -141,7 +141,11 @@ Rungs 1 and 2 involve no training. Holdout structure still applies to evaluation
 
 ### Ground truth
 
-End-of-season underperformance of a zone relative to its own multi-year baseline.
+**Primary label.** A zone-year is underperforming when its end-of-season residual is below minus one standard deviation of that zone's own residual history. The residual is the late-season index minus the zone's phenology-aligned baseline. The base rate is therefore a measured quantity per field-year, reported alongside every metric, never assumed.
+
+A within-field quantile label was rejected because it forces a fixed fraction of every field to be anomalous in every year, including benign ones, and makes lift over random a tautology.
+
+**Secondary label.** Absolute end-of-season underperformance: the bottom decile of raw index within field. The NDVI k-means baseline (B2) is expected to do well on this label and poorly on the primary one. Both labels are reported for every method; the gap between them is the thesis, stated as a measurement.
 
 **Circularity control:** a mandatory temporal gap separates the feature window from the label window. Features may not use observations from within the label window. The gap is configured once and recorded.
 
@@ -151,9 +155,12 @@ This proxy is not independent ground truth and the limitation is stated plainly 
 
 - Held out by **year** and by **field**. Both.
 - Never a random split of zones or pixels. Adjacent zones are spatially autocorrelated and are not independent samples.
-- Implemented as `GroupKFold` grouped by field, with year holdout applied independently.
+- Year holdout rolls across the last three seasons. Each held-out season is evaluated separately and results are reported as a spread across the three, not as a single point.
+- Field holdout is `GroupKFold` grouped by field, within each year holdout.
 
-The split function is unit tested. A test asserts that no field appears in both train and test, and that no test year appears in train.
+Blocking applies to everything that is **fit** on data: z-score statistics, rung-2 weights, k-means, LightGBM, and any calibration of the label. The per-zone baseline is not fit; it is computed from one zone's own history and is subject to a temporal rule only: strictly prior years, never the target year, never the label window.
+
+The split logic is unit tested at both layers. One test asserts that no field used to fit anything appears in the test set, and that no test year appears in any fit-set. A second test asserts that every baseline value is computed only from years strictly before the year it is applied to.
 
 ### Metrics
 
@@ -162,10 +169,13 @@ The split function is unit tested. A test asserts that no field appears in both 
 - **Lift over persistence null** — the headline number.
 - **Lift over NDVI k-means baseline** — the commercial comparison.
 - False positive rate at each k.
+- Base rate per field-year, under each label.
+
+All metrics are reported under both labels, for every method and both baselines.
 
 ### Baselines
 
-- **B1, persistence null.** Predicts each zone behaves exactly as it always has. Zero anomaly everywhere. Hard to beat because permanent soil structure repeats annually. This is the honesty check.
+- **B1, persistence null.** Ranks zones within a field by their multi-year mean index, ascending, computed from prior years only. It predicts that the zones which have always been worst will be worst again. Hard to beat because permanent soil structure repeats annually. This is the honesty check.
 - **B2, NDVI k-means.** k-means on a vegetation index into 2 to 7 zones, matching what commercial platforms ship. Rank zones by cluster mean.
 
 ### Acceptance gates
@@ -174,8 +184,8 @@ The split function is unit tested. A test asserts that no field appears in both 
 |---|---|---|
 | G-0 | Median clear observations per season ≥ 6 for the AOI | Widen phenology bins, add Sentinel-1, or change AOI. **Run this first, before anything else.** |
 | G-1 | Split function passes leakage unit tests | Stop. Nothing downstream is valid. |
-| G-2 | Ranker beats random at precision@10% | Investigate before proceeding |
-| G-3 | Ranker beats persistence null at precision@10% | Not required to pass. If failed, report as the primary finding: permanent soil structure dominates the anomaly signal. |
+| G-2 | Ranker beats random at precision@10%, primary label | Investigate before proceeding |
+| G-3 | Ranker beats persistence null at precision@10%, primary label | Not required to pass. If failed, report as the primary finding: permanent soil structure dominates the anomaly signal. |
 | G-4 | CDL rotation mismatch below 10% on test fields | Restrict to fields with confirmed stable rotation |
 
 **G-3 is not a pass/fail gate on the project.** A well-characterised negative result is a valid and reportable outcome. The failure mode to avoid is discovering a negative result and quietly reframing the project to hide it.
@@ -243,7 +253,7 @@ The demo must not use the phrase "real time."
 
 Unit test what fails silently:
 
-- **Split logic.** Field appears in exactly one of train/test. Test years absent from train. This is the highest-value test in the repo.
+- **Split logic.** Two tests. No field used to fit anything appears in the test set, and no test year appears in any fit-set. Every baseline value uses only years strictly before the year it is applied to. These are the highest-value tests in the repo.
 - **Zonal aggregation.** Known synthetic raster and polygon, known expected fractional-weight result.
 - **Baseline computation.** Known synthetic time series, known expected residual.
 - **CRS assertions.** Mismatched inputs raise rather than silently reproject.

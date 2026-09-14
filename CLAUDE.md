@@ -31,7 +31,7 @@ These are not preferences. Violating them invalidates the project.
 
 Splits are held out by **field AND year**. Adjacent zones are spatially autocorrelated and are not independent samples. A random split will produce excellent numbers that mean nothing.
 
-If you write a split, `tests/test_splits.py` must assert no field appears in both train and test, and no test year appears in train. Write the test first.
+If you write a split, `tests/test_splits.py` must assert two things: no field used to fit anything appears in the test set and no test year appears in any fit-set; and every baseline value uses only years strictly before the year it is applied to. The per-zone baseline is a feature, not a fit, and is governed by the temporal rule only. Write the tests first.
 
 ### 2. Never invent a number
 

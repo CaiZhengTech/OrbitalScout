@@ -124,11 +124,11 @@ Frozen in `SPEC.md` Section 10 before any data was touched.
 
 **Splits are blocked by field AND by year. Never a random split of zones.** Adjacent zones are spatially autocorrelated and are not independent samples; a random zone split leaks neighbouring information into the test set and produces an excellent number that means nothing. This is the same class of error as shared-group leakage in image datasets.
 
-The split function is the most important tested code in the repository. `tests/test_splits.py` asserts that no field appears in both train and test, and that no test year appears in train.
+The split logic is the most important tested code in the repository. `tests/test_splits.py` asserts two things: nothing is fit on a test field or a test year, and every per-zone baseline uses only years strictly before the year it is applied to. The baseline is a feature, not a fit, and is governed by the temporal rule only.
 
 **Circularity control.** A mandatory temporal gap separates the feature window from the label window. Features may not use observations from inside the label window. The gap is configured once and recorded.
 
-**The label is a proxy**, namely end-of-season underperformance of a zone relative to its own multi-year baseline. It is not independent ground truth, and that limitation is stated plainly rather than buried.
+**The primary label is a proxy**, namely a zone's end-of-season residual falling more than one standard deviation below its own history. The base rate is measured per field-year, never assumed. A secondary label, absolute end-of-season underperformance, is reported alongside it so that the commercial baseline is evaluated on the question it was built to answer. Neither label is independent ground truth, and that limitation is stated plainly rather than buried.
 
 ### Acceptance gates
 
@@ -162,7 +162,7 @@ Everything after Step 4 is an ablation study. Steps 0 through 4 done well beats 
 |---|---|
 | Geography | One county, US Corn Belt (Iowa or Illinois) `[TBD]` |
 | Crops | Corn and soybean |
-| Years | 5 growing seasons minimum, most recent held out |
+| Years | All Sentinel-2 L2A seasons, 2017 onward; last three held out in rotation |
 | Season window | Roughly May through September, bounded by phenology not calendar |
 | Zone size | 10m, matching Sentinel-2 native resolution |
 | Field definition | USDA Crop Sequence Boundaries polygons |
@@ -229,6 +229,7 @@ Makefile            five linear stages
 | `DESIGN.md` | Why, and what was rejected. Decision records D1 through D14. |
 | `CLAUDE.md` | The operating agreement: hard rules, build order, what not to build. |
 | `RESULTS.md` | Measured outcomes, including null results. `[TBD]` |
+| `docs/reviews/` | Dated architectural reviews. The first predates any data. |
 
 ## Prior art
 

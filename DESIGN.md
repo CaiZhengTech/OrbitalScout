@@ -116,6 +116,8 @@ This single reframe drives most of the rest of the design.
 
 **Consequence.** The split function is the most important tested code in the repo.
 
+**Refinement (2026-09-14 review).** Blocking governs what is fit. The per-zone baseline is a feature computed from one zone's own prior years and is subject to a temporal rule, not a field rule. A literal "no field in both sets" test would delete the history the baseline needs while missing the real leakage channel, which is fitting z-score statistics on the test year. See `docs/reviews/2026-09-14-spec-review.md`, finding 3.
+
 ---
 
 ### D9. Cloud Score+ masking, plus persistence as backstop
