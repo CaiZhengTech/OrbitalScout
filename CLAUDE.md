@@ -67,9 +67,9 @@ Treating a masked pixel as zero silently corrupts every downstream statistic.
 
 Strictly sequential. Do not start a step before the previous one runs end to end.
 
-**Step 0 — Clear observation count.** Before anything else. Pull one county, one season of Sentinel-2, apply Cloud Score+ masking, count usable observations per zone. If the median is under 6, stop and tell the user; the design needs to change before proceeding.
+**Step 0 — Clear observation count and zone size.** Before anything else. In Earth Engine: pull one county, one season of Sentinel-2, apply Cloud Score+ masking, count usable observations per zone. If the median is under 6, stop and tell the user; the design needs to change before proceeding. In the same step, on a sample of about 20 fields across all seasons, measure year-over-year variance of stable zones at 10m and 30m and record the zone-size decision in `RESULTS.md`.
 
-**Step 1 — Ingestion.** STAC pull, masking, CSB boundaries, CDL labels, zone construction, exactextract aggregation into DuckDB. This is the longest step. Expect it to take most of the first week.
+**Step 1 — Ingestion.** CSB boundaries, zone construction, CDL labels, one Earth Engine expression that masks and zonally reduces every season into a zone-date-index table, export, load into DuckDB. This is the longest step. Expect it to take most of the first week.
 
 **Step 2 — Baseline construction.** GDD accumulation, phenology-aligned per-zone historical baseline.
 
@@ -136,7 +136,7 @@ Test what fails silently. Skip what fails loudly.
 
 **Test:**
 - Split logic (highest value in the repo)
-- Zonal aggregation against a known synthetic raster and polygon
+- Index computation against known band values
 - Baseline computation against a known synthetic time series
 - CRS mismatch raises
 - Nodata handling
@@ -173,11 +173,11 @@ A well-characterised negative result is a stronger portfolio artifact than a sus
 
 | Purpose | Source | Access |
 |---|---|---|
-| Sentinel-2 L2A | Planetary Computer | `pystac-client` + `odc-stac`, `planetary_computer.sign` |
+| Sentinel-2 L2A | Earth Engine `COPERNICUS/S2_SR_HARMONIZED` | Joined to Cloud Score+ by `system:index`; Planetary Computer retained as cross-check only |
 | Cloud masking | Cloud Score+ | GEE `GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED` |
 | Field polygons | USDA CSB | Source Cooperative `fiboa/us-usda-cropland`, GeoParquet |
 | Crop labels | USDA CDL | CropScape REST or GEE `USDA/NASS/CDL` |
-| Zone prior | AlphaEarth | GEE `GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL` |
+| Zone prior | AlphaEarth (rung 3 only) | GEE `GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL` |
 | Soil | USDA SDA | POST `https://SDMDataAccess.sc.egov.usda.gov/Tabular/post.rest` |
 | Weather / GDD | Open-Meteo | `https://archive-api.open-meteo.com/v1/archive` |
 

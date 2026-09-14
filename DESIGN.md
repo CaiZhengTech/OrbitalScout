@@ -190,6 +190,32 @@ This single reframe drives most of the rest of the design.
 
 ---
 
+### D15. Ingestion lives entirely in Earth Engine
+
+**Decision.** Sentinel-2 pixels, the Cloud Score+ mask, and zonal reduction all run in one Earth Engine expression. One table of zone-date-index is exported. Local code starts at DuckDB.
+
+**Rejected: pixels from Planetary Computer, mask from Earth Engine.** Two platforms, two grids, pixel-exact co-registration required, export quota consumed for every scene. The most fragile piece of the original design, and it had no decision record.
+
+**Rationale.** The project was already committed to Earth Engine for Cloud Score+ and AlphaEarth. Using it fully removes the split and makes "one definition of clear observation" literally one line.
+
+**Cost.** Deeper dependence on Google and on export limits. Both were already accepted. Planetary Computer is retained as an independent cross-check on a sample of zones.
+
+Raised in `docs/reviews/2026-09-14-spec-review.md`, finding 5.
+
+---
+
+### D16. Zone size is measured, not assumed
+
+**Decision.** Zone side length is a configuration parameter. Step 0 measures year-over-year variance of stable zones at 10m and 30m on a sample of fields across all seasons, and the choice is recorded in `RESULTS.md`.
+
+**Rejected: 10m as a constant.** Sentinel-2 carries roughly one pixel of co-registration jitter between passes. At 10m a zone's multi-year series is partly its neighbour's, and the per-zone standard deviation the primary label depends on becomes hard to estimate. A 3x3 block is also closer to what a person actually walks to.
+
+**Consequence.** `exactextract` is no longer needed; aggregation is a masked mean inside the Earth Engine expression.
+
+Raised in `docs/reviews/2026-09-14-spec-review.md`, finding 6.
+
+---
+
 ## 4. What this project is not contributing
 
 Stated explicitly so it is never overclaimed.

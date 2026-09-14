@@ -84,7 +84,7 @@ Open-Meteo GDD  --+                        Parquet)                             
                                                             static MapLibre demo
 ```
 
-**Masking, CRS reprojection, and zonal aggregation happen exactly once, at ingestion.** Every signal reads one clean feature table. No signal reimplements any of them, because two competing definitions of "clear observation" would make the persistence signal meaningless.
+**Masking, CRS reprojection, and zonal aggregation happen exactly once, at ingestion, in a single Earth Engine expression.** Every signal reads one clean feature table. No signal reimplements any of them, because two competing definitions of "clear observation" would make the persistence signal meaningless.
 
 All spatial data is reprojected once to EPSG:5070 (NAD83 / Conus Albers). CRS equality is asserted before any spatial join, and a mismatch raises rather than silently reprojecting.
 
@@ -146,8 +146,8 @@ Current gate status: `[TBD]`, none run yet.
 
 Strictly sequential. Each step runs end to end before the next begins.
 
-- [ ] **Step 0.** Clear observation count. One county, one season, Cloud Score+ masking, count usable observations per zone. Gate G-0.
-- [ ] **Step 1.** Ingestion. STAC pull, masking, CSB boundaries, CDL labels, zone construction, `exactextract` aggregation into DuckDB.
+- [ ] **Step 0.** Clear observation count and zone size. One county, one season, Cloud Score+ masking, count usable observations per zone (gate G-0). Measure year-over-year variance of stable zones at 10m and 30m on a field sample and pick the zone size from it.
+- [ ] **Step 1.** Ingestion. CSB boundaries, zone construction, CDL labels, one Earth Engine expression that masks and zonally reduces every season, export, load into DuckDB.
 - [ ] **Step 2.** Baseline construction. GDD accumulation, phenology-aligned per-zone history.
 - [ ] **Step 3.** Signal S1 alone. Sort by it. No model.
 - [ ] **Step 4.** Evaluation harness. Persistence null, NDVI k-means baseline, precision@k, lift, blocked splits. **The project is complete and shippable at this point.**
@@ -164,7 +164,7 @@ Everything after Step 4 is an ablation study. Steps 0 through 4 done well beats 
 | Crops | Corn and soybean |
 | Years | All Sentinel-2 L2A seasons, 2017 onward; last three held out in rotation |
 | Season window | Roughly May through September, bounded by phenology not calendar |
-| Zone size | 10m, matching Sentinel-2 native resolution |
+| Zone size | Configurable; 10m or 30m, decided by measurement at Step 0 `[TBD]` |
 | Field definition | USDA Crop Sequence Boundaries polygons |
 
 Crop-specific parameters live in a registry table keyed by CDL code. Adding a crop means adding a row. No crop name appears in a conditional anywhere in the codebase.
@@ -175,11 +175,11 @@ All free. Registration requirements are flagged because they gate the start of w
 
 | Purpose | Source | Access | Registration |
 |---|---|---|---|
-| Optical time series | Sentinel-2 L2A | Planetary Computer STAC, `pystac-client` + `odc-stac` | No |
+| Optical time series | Sentinel-2 L2A | Earth Engine `COPERNICUS/S2_SR_HARMONIZED`, masked and reduced in one expression | Earth Engine |
 | Cloud and shadow masking | Cloud Score+ | Earth Engine `GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED` | Earth Engine |
 | Field polygons | USDA Crop Sequence Boundaries | Source Cooperative `fiboa/us-usda-cropland`, GeoParquet | No |
 | Crop labels | USDA Cropland Data Layer | CropScape REST or Earth Engine | No |
-| Multi-year zone prior | AlphaEarth Satellite Embedding | Earth Engine `GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL` | Earth Engine |
+| Multi-year zone prior (rung 3 only) | AlphaEarth Satellite Embedding | Earth Engine `GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL` | Earth Engine |
 | Drainage class, slope | USDA Soil Data Access | POST to SDMDataAccess | No |
 | Daily temps for GDD | Open-Meteo Historical | `archive-api.open-meteo.com` | No |
 

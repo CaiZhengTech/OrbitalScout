@@ -47,12 +47,12 @@ All sources are free. Registration requirements are flagged because they gate th
 
 | Source | Purpose | Access | Registration |
 |---|---|---|---|
-| Sentinel-2 L2A | In-season optical time series | STAC: Microsoft Planetary Computer `sentinel-2-l2a` via `pystac-client` + `odc-stac`, with `planetary_computer.sign` | No |
-| Sentinel-2 L2A (alt) | Fallback / cross-check | Element84 `https://earth-search.aws.element84.com/v1`, collection `sentinel-2-c1-l2a` | No |
+| Sentinel-2 L2A | In-season optical time series | Earth Engine `COPERNICUS/S2_SR_HARMONIZED`, joined to Cloud Score+ by `system:index`, masked and zonally reduced in one expression | Earth Engine |
+| Sentinel-2 L2A (cross-check) | Independent check of exported values on a sample of zones | Planetary Computer `sentinel-2-l2a` via `pystac-client` | No |
 | Cloud Score+ | Cloud and shadow masking | Earth Engine `GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED` | Earth Engine |
 | USDA Crop Sequence Boundaries | Field polygons | GeoParquet mirror, Source Cooperative `fiboa/us-usda-cropland` | No |
 | USDA Cropland Data Layer | Crop type labels | CropScape REST, or Earth Engine `USDA/NASS/CDL` | No |
-| AlphaEarth Satellite Embedding | Multi-year zone prior | Earth Engine `GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL` | Earth Engine |
+| AlphaEarth Satellite Embedding | Multi-year zone prior. Rung 3 only; not ingested before rung 3 is reached | Earth Engine `GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL` | Earth Engine |
 | USDA Soil Data Access | Drainage class, slope | POST to `https://SDMDataAccess.sc.egov.usda.gov/Tabular/post.rest` | No |
 | Open-Meteo Historical | Daily temps for GDD | `https://archive-api.open-meteo.com/v1/archive` | No |
 
@@ -73,9 +73,11 @@ Categorical rasters (CDL) are resampled with nearest neighbour only. Continuous 
 
 ## 6. Zone definition
 
-A zone is a 10m grid cell whose centroid falls inside a CSB field polygon, after an inward buffer of one pixel to exclude boundary-contaminated pixels.
+A zone is a square grid cell of configurable side length, aligned to the Sentinel-2 10m grid, whose centroid falls inside a CSB field polygon after an inward buffer of one pixel to exclude boundary-contaminated pixels.
 
-Zonal aggregation uses `exactextract` with fractional pixel coverage weights. Centroid-based or all-touched aggregation is not acceptable at this pixel size.
+Zone size is a parameter in `config.py`, not a constant. Step 0 measures the year-over-year variance of stable zones at 10m and 30m on a sample of fields across all seasons; the choice is made from that measurement and recorded in `RESULTS.md`. The concern at 10m is Sentinel-2 co-registration jitter of roughly one pixel between passes, which makes a single pixel's multi-year series partly its neighbour's.
+
+Zonal aggregation is a mean over the pixels within the zone, computed in Earth Engine in the same expression that applies the cloud mask, so masked pixels are excluded by construction. Nothing is aggregated locally.
 
 Zones with fewer than a configured minimum of valid pixels across the season are dropped, not imputed.
 
@@ -199,15 +201,16 @@ orbitalscout/
   config.py           # AOI, years, CRS, paths, thresholds. One place.
   crops.py            # crop registry table loader
   ingest/
-    stac.py           # Sentinel-2 via pystac-client + odc-stac
-    masking.py        # Cloud Score+ clear-observation determination
+    gee.py            # Sentinel-2 + Cloud Score+ + zonal reduce, one expression, table export
+    masking.py        # the single clear-observation threshold, imported by gee.py
     boundaries.py     # CSB field polygons
     cdl.py            # crop labels
     soil.py           # SDA queries
     weather.py        # Open-Meteo, GDD accumulation
-    embeddings.py     # AlphaEarth export handling
+    embeddings.py     # AlphaEarth. Rung 3 only. Not written before then.
+    crosscheck.py     # Planetary Computer pull of a zone sample, compared to the GEE export
   zones.py            # zone construction, inward buffer
-  features.py         # indices, exactextract zonal aggregation
+  features.py         # index computation over the exported zone table
   baseline.py         # phenology-aligned per-zone historical baseline
   signals.py          # six functions, one shared signature
   rank.py             # combination and sort
@@ -216,7 +219,7 @@ orbitalscout/
   export.py           # precomputed GeoJSON for the demo
 tests/
   test_splits.py      # leakage tests. The most important tests in the repo.
-  test_zonal.py       # zonal aggregation correctness
+  test_crosscheck.py  # GEE export vs independent PC pull on a zone sample. Manual, network, not CI.
   test_baseline.py    # baseline computation
 demo/
   index.html          # MapLibre, one file
@@ -225,7 +228,7 @@ Makefile              # the pipeline. Five linear steps. Not an orchestrator.
 
 ### Shared-once rule
 
-Cloud masking, CRS reprojection, and zonal aggregation are applied **once during ingestion**, producing a clean feature table that all signals read. No signal may reimplement any of them. Two definitions of "clear observation" would make S5 meaningless.
+Cloud masking, CRS reprojection, and zonal aggregation are applied **once during ingestion, in a single Earth Engine expression**, producing a clean feature table that all signals read. No signal may reimplement any of them. Two definitions of "clear observation" would make S5 meaningless.
 
 ## 12. Storage
 
@@ -254,7 +257,7 @@ The demo must not use the phrase "real time."
 Unit test what fails silently:
 
 - **Split logic.** Two tests. No field used to fit anything appears in the test set, and no test year appears in any fit-set. Every baseline value uses only years strictly before the year it is applied to. These are the highest-value tests in the repo.
-- **Zonal aggregation.** Known synthetic raster and polygon, known expected fractional-weight result.
+- **Index computation.** Known band values, known expected index. The zonal reduction itself runs in Earth Engine and is checked by an independent Planetary Computer pull on a zone sample, run manually, never in CI.
 - **Baseline computation.** Known synthetic time series, known expected residual.
 - **CRS assertions.** Mismatched inputs raise rather than silently reproject.
 - **Nodata handling.** Masked pixels are excluded, never treated as zero.
