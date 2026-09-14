@@ -1,6 +1,6 @@
 # OrbitalScout
 
-Rank 10m sub-field zones by how urgently they warrant a physical visit, measured against each zone's own multi-year history.
+Rank sub-field zones by how urgently they warrant a physical visit, measured against each zone's own multi-year history.
 
 It answers **where to scout**, never **what is wrong**.
 
@@ -61,7 +61,7 @@ No results yet. This table is the output of the build, not a target.
 
 ### A negative result is pre-committed as valid
 
-The persistence null predicts that every zone behaves exactly as it always has. Because permanent soil structure repeats annually, it is genuinely hard to beat. There is a real chance OrbitalScout does not beat it.
+The persistence null ranks zones by their multi-year mean, worst first: it predicts that the zones which have always been worst will be worst again. Because permanent soil structure repeats annually, it is genuinely hard to beat. There is a real chance OrbitalScout does not beat it.
 
 If that happens it is reported as the headline finding, in these words: *permanent soil structure dominates the within-field anomaly signal, and a persistence null was not beaten at k=10%.* The protocol will not be retuned, the baseline will not be dropped, and the project will not be reframed to avoid saying so.
 
