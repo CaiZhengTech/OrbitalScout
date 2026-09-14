@@ -1,0 +1,29 @@
+# Data. The modelling dataset is single-digit GB and is rebuilt by the pipeline.
+data/
+*.parquet
+*.duckdb
+*.duckdb.wal
+*.tif
+*.tiff
+*.nc
+*.zarr/
+
+# Secrets. Never commit credentials or Earth Engine service-account keys.
+.env
+*.pem
+*.json.key
+service-account*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
