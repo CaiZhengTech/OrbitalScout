@@ -65,7 +65,7 @@ Base rate is 10% by construction under the primary label, so lift over random is
 
 The headline null is anomaly persistence: rank zones by last year's residual, predicting that whatever was unusually bad last year is unusually bad again. Because problems recur in the same places, it is genuinely hard to beat. There is a real chance OrbitalScout does not beat it.
 
-If that happens it is reported as the headline finding, in these words: *permanent soil structure dominates the within-field anomaly signal, and a persistence null was not beaten at k=10%.* The protocol will not be retuned, the baseline will not be dropped, and the project will not be reframed to avoid saying so.
+If that happens it is reported as the headline finding, in these words: *prior-year anomaly explains this year's anomaly, and the anomaly-persistence null was not beaten at the scouting budget.* If B1a additionally wins on the secondary absolute label, that is reported as a second finding: permanent soil structure dominates the absolute signal. The protocol will not be retuned, neither null will be dropped, and the project will not be reframed to avoid saying so.
 
 This paragraph exists in the repository before the results do, specifically so that it cannot be quietly removed afterwards.
 
