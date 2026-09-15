@@ -49,19 +49,21 @@ That framing is deliberately smaller than "I built a crop monitoring platform," 
 
 No results yet. This table is the output of the build, not a target.
 
-| Metric | NDVI k-means (B2) | Persistence null (B1) | OrbitalScout |
-|---|---|---|---|
-| precision@5% | `[TBD]` | `[TBD]` | `[TBD]` |
-| precision@10% | `[TBD]` | `[TBD]` | `[TBD]` |
-| precision@20% | `[TBD]` | `[TBD]` | `[TBD]` |
-| Lift over random @10% | `[TBD]` | `[TBD]` | `[TBD]` |
-| False positive rate @10% | `[TBD]` | `[TBD]` | `[TBD]` |
+| Metric, primary label | NDVI k-means (B2) | Level persistence (B1a) | Anomaly persistence (B1b) | OrbitalScout |
+|---|---|---|---|---|
+| precision@budget | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` |
+| precision@5% | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` |
+| precision@10% | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` |
+| precision@20% | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` |
+| False positive rate @10% | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` |
 
-**Lift over the persistence null at k=10% is the headline number.**
+Base rate is 10% by construction under the primary label, so lift over random is precision@k divided by 0.10. All metrics are also reported under the secondary absolute label, where B1a and B2 are the fair comparisons.
+
+**Lift over B1b, anomaly persistence, at the scouting budget is the headline number.** Lift over B1a on this label is expected to be large and meaningless; see the pre-registered prediction in `SPEC.md` Section 10.
 
 ### A negative result is pre-committed as valid
 
-The persistence null ranks zones by their multi-year mean, worst first: it predicts that the zones which have always been worst will be worst again. Because permanent soil structure repeats annually, it is genuinely hard to beat. There is a real chance OrbitalScout does not beat it.
+The headline null is anomaly persistence: rank zones by last year's residual, predicting that whatever was unusually bad last year is unusually bad again. Because problems recur in the same places, it is genuinely hard to beat. There is a real chance OrbitalScout does not beat it.
 
 If that happens it is reported as the headline finding, in these words: *permanent soil structure dominates the within-field anomaly signal, and a persistence null was not beaten at k=10%.* The protocol will not be retuned, the baseline will not be dropped, and the project will not be reframed to avoid saying so.
 
@@ -128,7 +130,7 @@ The split logic is the most important tested code in the repository. `tests/test
 
 **Circularity control.** A mandatory temporal gap separates the feature window from the label window. Features may not use observations from inside the label window. The gap is configured once and recorded.
 
-**The primary label is a proxy**, namely a zone's end-of-season residual falling more than one standard deviation below its own history. The base rate is measured per field-year, never assumed. A secondary label, absolute end-of-season underperformance, is reported alongside it so that the commercial baseline is evaluated on the question it was built to answer. Neither label is independent ground truth, and that limitation is stated plainly rather than buried.
+**The primary label is a proxy**, namely a zone's end-of-season residual falling in the bottom decile within its field-year. The base rate is therefore 10% by construction, fixed before any data was pulled. A secondary label, absolute end-of-season underperformance, is reported alongside it so that the commercial baseline is evaluated on the question it was built to answer. Neither label is independent ground truth: both are computed from the same satellite index as the prediction, and that limitation is stated plainly rather than buried.
 
 ### Acceptance gates
 
@@ -165,6 +167,7 @@ Everything after Step 4 is an ablation study. Steps 0 through 4 done well beats 
 | Years | All Sentinel-2 L2A seasons, 2017 onward; last three held out in rotation |
 | Season window | Roughly May through September, bounded by phenology not calendar |
 | Zone size | Configurable; 10m or 30m, decided by measurement at Step 0 `[TBD]` |
+| Baseline | Stratified by crop; roughly 4 seasons per zone-crop under a corn-soy rotation |
 | Field definition | USDA Crop Sequence Boundaries polygons |
 
 Crop-specific parameters live in a registry table keyed by CDL code. Adding a crop means adding a row. No crop name appears in a conditional anywhere in the codebase.

@@ -116,6 +116,8 @@ The temporal baseline is aligned by **accumulated growing degree days**, not cal
 - Corn: base 50°F, cap 86°F.
 - Soybean: base 50°F. Note that soybean development is strongly photoperiod and maturity-group driven and there is no authoritative GDD-per-stage table. Soybean phenology alignment is therefore weaker than corn and this limitation is stated in results rather than hidden.
 
+The per-zone baseline is stratified by crop. A zone's corn years and its soybean years form separate baselines, because canopy structure and index scale differ between the two and a pooled baseline would register a routine rotation as an anomaly. Under a standard corn-soy rotation this halves the usable history per zone, to roughly four seasons per crop out of nine. Effective history length per zone-crop is measured and reported in `RESULTS.md`, never assumed.
+
 Crop-specific parameters live in a **crop registry table**, one row per crop, keyed by CDL code:
 
 ```
@@ -143,13 +145,17 @@ Rungs 1 and 2 involve no training. Holdout structure still applies to evaluation
 
 ### Ground truth
 
-**Primary label.** A zone-year is underperforming when its end-of-season residual is below minus one standard deviation of that zone's own residual history. The residual is the late-season index minus the zone's phenology-aligned baseline. The base rate is therefore a measured quantity per field-year, reported alongside every metric, never assumed.
+**Primary label.** A zone-year is underperforming when its end-of-season residual falls in the bottom decile of residuals within that field-year. The residual is the late-season index minus the zone's phenology-aligned baseline, estimated leave-one-year-out as described under Circularity control. The base rate is fixed at 10% by construction and is stated here before any data was pulled, which makes lift over random arithmetic rather than a quantity discovered afterwards.
 
-A within-field quantile label was rejected because it forces a fixed fraction of every field to be anomalous in every year, including benign ones, and makes lift over random a tautology.
+This is a ranking-quality label, not an incidence label. It answers "under a fixed scouting budget, can the ranker find the worst zones in this field-year," which is the question the product answers. It does not answer "how often does something go wrong," which is what the secondary label addresses.
+
+A per-zone standard-deviation threshold was rejected on three counts. With crop stratification (Section 8) there are roughly four usable prior seasons per zone-crop, far too few to estimate a standard deviation. It selects on estimation error, so zones whose variance is underestimated by chance are flagged every year. And it flags backwards, tripping stable zones on trivial deviations while giving erratic zones a band they rarely cross.
 
 **Secondary label.** Absolute end-of-season underperformance: the bottom decile of raw index within field. The NDVI k-means baseline (B2) is expected to do well on this label and poorly on the primary one. Both labels are reported for every method; the gap between them is the thesis, stated as a measurement.
 
-**Circularity control:** a mandatory temporal gap separates the feature window from the label window. Features may not use observations from within the label window. The gap is configured once and recorded.
+**Circularity control.** A mandatory temporal gap separates the feature window from the label window. Features may not use observations from within the label window. The gap is configured once and recorded.
+
+The baseline used to compute the **label** residual is estimated leave-one-year-out: it excludes the target year and is computed separately from the baseline used for features. Without this, the feature and the label subtract the same estimated baseline and share its estimation error, which the temporal gap does not separate.
 
 This proxy is not independent ground truth and the limitation is stated plainly in results. Where a documented damage event overlaps the AOI (for example the August 2020 Iowa derecho, for which USDA NASS published a damage polygon layer), it is used as a qualitative case-study check, not as the primary label.
 
@@ -166,9 +172,11 @@ The split logic is unit tested at both layers. One test asserts that no field us
 
 ### Metrics
 
-- Primary: **precision@k** at k = 5%, 10%, 20% of field area.
+- Primary: **precision@k** at a fixed absolute scouting budget, expressed in zones, set from what one person can physically walk in a single visit. Recorded in `config.py` `[TBD]`. This is the agronomically meaningful number.
+- Also reported at k = 5%, 10%, 20% of field area, for comparability with how the metric is usually quoted.
 - **Lift over random** = precision@k divided by base rate.
-- **Lift over persistence null** — the headline number.
+- **Lift over B1b, anomaly persistence** is the headline number.
+- **Lift over B1a, level persistence** is reported on the secondary label, where it is a fair comparison.
 - **Lift over NDVI k-means baseline** — the commercial comparison.
 - False positive rate at each k.
 - Base rate per field-year, under each label.
@@ -177,8 +185,11 @@ All metrics are reported under both labels, for every method and both baselines.
 
 ### Baselines
 
-- **B1, persistence null.** Ranks zones within a field by their multi-year mean index, ascending, computed from prior years only. It predicts that the zones which have always been worst will be worst again. Hard to beat because permanent soil structure repeats annually. This is the honesty check.
+- **B1a, level persistence.** Ranks zones within a field by their multi-year mean index, ascending, computed from prior years only. It predicts that the zones which have always been worst will be worst again. Permanent soil structure repeats annually, which makes it hard to beat on the **secondary** label. It is scored against the primary label as well, but see the pre-registered prediction below.
+- **B1b, anomaly persistence. The headline null.** Ranks zones by their prior-year residual, ascending. It predicts that the zones which were unusually bad last year will be unusually bad again. It is construct-matched to the primary label, since both are measured on the residual, so it is not handicapped by the label definition and can genuinely win.
 - **B2, NDVI k-means.** k-means on a vegetation index into 2 to 7 zones, matching what commercial platforms ship. Rank zones by cluster mean.
+
+**Pre-registered prediction, written before Step 0 ran and before any data was pulled.** B1a is expected to score at or near chance against the primary label, because the primary label subtracts the zone mean that B1a ranks on. Any large lift over B1a on the primary label is therefore an artifact of the label definition and must not be reported as evidence that the ranker works. The honest headline is lift over B1b on the primary label, and lift over B1a on the secondary label. This paragraph exists so that the distinction cannot be quietly dropped after results are seen.
 
 ### Acceptance gates
 
@@ -187,7 +198,7 @@ All metrics are reported under both labels, for every method and both baselines.
 | G-0 | Median clear observations per season ≥ 6 for the AOI | Widen phenology bins, add Sentinel-1, or change AOI. **Run this first, before anything else.** |
 | G-1 | Split function passes leakage unit tests | Stop. Nothing downstream is valid. |
 | G-2 | Ranker beats random at precision@10%, primary label | Investigate before proceeding |
-| G-3 | Ranker beats persistence null at precision@10%, primary label | Not required to pass. If failed, report as the primary finding: permanent soil structure dominates the anomaly signal. |
+| G-3 | Ranker beats B1b anomaly persistence at the absolute scouting budget, primary label | Not required to pass. If failed, report as the primary finding: prior-year anomaly explains this year's anomaly and the ranker adds nothing beyond it. |
 | G-4 | CDL rotation mismatch below 10% on test fields | Restrict to fields with confirmed stable rotation |
 
 **G-3 is not a pass/fail gate on the project.** A well-characterised negative result is a valid and reportable outcome. The failure mode to avoid is discovering a negative result and quietly reframing the project to hide it.
@@ -258,7 +269,7 @@ Unit test what fails silently:
 
 - **Split logic.** Two tests. No field used to fit anything appears in the test set, and no test year appears in any fit-set. Every baseline value uses only years strictly before the year it is applied to. These are the highest-value tests in the repo.
 - **Index computation.** Known band values, known expected index. The zonal reduction itself runs in Earth Engine and is checked by an independent Planetary Computer pull on a zone sample, run manually, never in CI.
-- **Baseline computation.** Known synthetic time series, known expected residual.
+- **Baseline computation.** Known synthetic time series, known expected residual. Separately: a zone whose crop alternates must produce two baselines, not one, and the leave-one-year-out label baseline must exclude the target year. Both are asserted.
 - **CRS assertions.** Mismatched inputs raise rather than silently reproject.
 - **Nodata handling.** Masked pixels are excluded, never treated as zero.
 

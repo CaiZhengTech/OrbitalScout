@@ -54,6 +54,8 @@ This single reframe drives most of the rest of the design.
 
 **Pre-commitment.** If the ranker does not beat persistence, that becomes the reported headline finding: permanent soil structure dominates the within-field anomaly signal. This is written down before results exist specifically so it cannot be quietly reframed afterwards.
 
+**Correction (2026-09-14 council review).** "Persistence" is two different nulls depending on the label. Ranking by multi-year level is the right null for an absolute label and is structurally unable to win against a residual label, which subtracts the level. Ranking by prior-year residual is the right null for a residual label and is the one that is genuinely hard to beat. Both are now specified, as B1a and B1b, and a prediction about B1a is pre-registered in `SPEC.md` Section 10. See `docs/reviews/2026-09-14-council-label-review.md`.
+
 ---
 
 ### D4. Crop-agnostic by construction; crop knowledge as data

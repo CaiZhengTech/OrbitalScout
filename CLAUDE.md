@@ -67,7 +67,7 @@ Treating a masked pixel as zero silently corrupts every downstream statistic.
 
 Strictly sequential. Do not start a step before the previous one runs end to end.
 
-**Step 0 — Clear observation count and zone size.** Before anything else. In Earth Engine: pull one county, one season of Sentinel-2, apply Cloud Score+ masking, count usable observations per zone. If the median is under 6, stop and tell the user; the design needs to change before proceeding. In the same step, on a sample of about 20 fields across all seasons, measure year-over-year variance of stable zones at 10m and 30m and record the zone-size decision in `RESULTS.md`.
+**Step 0 — Clear observation count and zone size.** Before anything else. In Earth Engine: pull one county, one season of Sentinel-2, apply Cloud Score+ masking, count usable observations per zone. If the median is under 6, stop and tell the user; the design needs to change before proceeding. In the same step, on a sample of about 20 fields across all seasons, measure year-over-year variance of stable zones at 10m and 30m and record the zone-size decision in `RESULTS.md`. Also record the median number of usable seasons per zone **per crop**, since the baseline is crop-stratified and a corn-soy rotation halves it.
 
 **Step 1 — Ingestion.** CSB boundaries, zone construction, CDL labels, one Earth Engine expression that masks and zonally reduces every season into a zone-date-index table, export, load into DuckDB. This is the longest step. Expect it to take most of the first week.
 
@@ -158,6 +158,8 @@ Test what fails silently. Skip what fails loudly.
 ---
 
 ## If the ranker does not beat the persistence null
+
+The null that matters is **B1b, anomaly persistence**: rank zones by last year's residual. Beating B1a, level persistence, on the primary label proves nothing, because the label subtracts the level B1a ranks on. Do not report lift over B1a on the primary label as a win.
 
 This is a plausible outcome, roughly one chance in three, and it is pre-committed as a valid result.
 
