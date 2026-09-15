@@ -56,6 +56,8 @@ This single reframe drives most of the rest of the design.
 
 **Correction (2026-09-14 council review).** "Persistence" is two different nulls depending on the label. Ranking by multi-year level is the right null for an absolute label and is structurally unable to win against a residual label, which subtracts the level. Ranking by prior-year residual is the right null for a residual label and is the one that is genuinely hard to beat. Both are now specified, as B1a and B1b, and a prediction about B1a is pre-registered in `SPEC.md` Section 10. See `docs/reviews/2026-09-14-council-label-review.md`.
 
+**Refinement (2026-09-14, after Step 0).** B1b is the residual in the most recent prior year with the **same crop**, not simply the prior year. Step 0 measured a crop change across 82% of consecutive year pairs, so under a rotation the prior year is the other crop. If a zone-by-crop interaction exists, last year's residual is anti-informative about a crop-specific recurrence, which would handicap the null again by a different route. See `docs/reviews/2026-09-14-baseline-depth-decision.md`.
+
 ---
 
 ### D4. Crop-agnostic by construction; crop knowledge as data
@@ -215,6 +217,36 @@ Raised in `docs/reviews/2026-09-14-spec-review.md`, finding 5.
 **Consequence.** `exactextract` is no longer needed; aggregation is a masked mean inside the Earth Engine expression.
 
 Raised in `docs/reviews/2026-09-14-spec-review.md`, finding 6.
+
+---
+
+### D17. The baseline is within-field relative, not absolute
+
+**Decision.** A zone's baseline is its typical standing relative to its own field in the same year, pooled across all prior years regardless of crop. Formulas in `SPEC.md` Section 8.
+
+**Rejected: a crop-stratified absolute baseline.** Adopted in the morning of 2026-09-14 and removed the same day once Step 0 measured the rotation. Crop changes across 82% of consecutive year pairs, which left two to four seasons per zone-crop and only two or three for the earliest held-out year. A mean of two seasons is not a baseline; one unusual year is half of it.
+
+**Rationale.** Crop is a property of the field-year, not of the zone. Corn Belt fields rotate as whole units, so within a field-year every zone shares one crop, one weather record, one planting date and one management regime. Measuring each zone against its own field in the same year cancels all of them simultaneously, and the quantity that survives is the zone's persistent relative standing plus whatever is different about it this year. That is also exactly what the product ranks, and what the primary label already scores, so the change makes the baseline consistent with both rather than introducing a new idea.
+
+**The follow-up question this invites:** "Doesn't that throw away the crop information?" Answer: it throws away the crop *level*, which is a field-year constant and is noise for a within-field ranking. It keeps any zone-by-crop interaction as a candidate refinement that has to earn its place by lift.
+
+**Consequence.** Usable history per zone returns to five to seven prior seasons. The field centre is a median rather than a mean so a large anomaly cannot drag the centre toward itself.
+
+Raised in `docs/reviews/2026-09-14-baseline-depth-decision.md`, Decisions 1 and 2.
+
+---
+
+### D18. The AOI is restricted to the doubly covered region
+
+**Decision.** The study area is Story County intersected with the footprint of Sentinel-2 relative orbit 112, roughly 64% of the county.
+
+**Rejected: the whole county with orbit coverage as a per-zone covariate.** Step 0 measured that two relative orbits cover the AOI, one of which clips it, so 64% of the county receives roughly twice the clear observations of the remainder. Zones on the thin side get noisier baselines and shorter achievable persistence runs for S5. Carrying that as a covariate would attach a confound to every downstream comparison, and the thin region is a contiguous stripe rather than a random sample, so the confound is spatial.
+
+**Rationale.** `SPEC.md` Section 15 already states the tradeoff: accept a smaller AOI over a bigger boundary problem. A satellite orbit boundary appearing as a spatial pattern in crop stress is precisely the kind of artifact this project exists to avoid reporting.
+
+**Consequence.** About a third of the fields are dropped. The excluded stripe is retained as a free robustness experiment for later: does ranking quality degrade at half the observation density? Recorded as an option, not scheduled.
+
+Raised in `docs/reviews/2026-09-14-baseline-depth-decision.md`, Decision 4.
 
 ---
 

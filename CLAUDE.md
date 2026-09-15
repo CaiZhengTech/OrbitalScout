@@ -67,9 +67,9 @@ Treating a masked pixel as zero silently corrupts every downstream statistic.
 
 Strictly sequential. Do not start a step before the previous one runs end to end.
 
-**Step 0 — Clear observation count and zone size.** Before anything else. In Earth Engine: pull one county, one season of Sentinel-2, apply Cloud Score+ masking, count usable observations per zone. If the median is under 6, stop and tell the user; the design needs to change before proceeding. In the same step, on a sample of about 20 fields across all seasons, measure year-over-year variance of stable zones at 10m and 30m and record the zone-size decision in `RESULTS.md`. Also record the median number of usable seasons per zone **per crop**, since the baseline is crop-stratified and a corn-soy rotation halves it.
+**Step 0 — Clear observation count. DONE 2026-09-14.** G-0 passed: median 25 clear observations per season against a threshold of 6, across 2017 to 2025. Three findings changed the design: 2017 excluded as single-satellite, the AOI restricted to the region under both relative orbits, and crop stratification dropped in favour of a within-field relative baseline. See `RESULTS.md` and `docs/reviews/2026-09-14-baseline-depth-decision.md`. Zone size moved into Step 1.
 
-**Step 1 — Ingestion.** CSB boundaries, zone construction, CDL labels, one Earth Engine expression that masks and zonally reduces every season into a zone-date-index table, export, load into DuckDB. This is the longest step. Expect it to take most of the first week.
+**Step 1 — Ingestion.** CSB boundaries, zone construction, CDL labels, one Earth Engine expression that masks and zonally reduces every season into a zone-date-index table, export, load into DuckDB. Export the zone table at **both 10m and 30m**: the same expression emits both at negligible extra cost, and the zone-size comparison is then made on the within-field relative quantity rather than guessed beforehand. This is the longest step. Expect it to take most of the first week.
 
 **Step 2 — Baseline construction.** GDD accumulation, phenology-aligned per-zone historical baseline.
 

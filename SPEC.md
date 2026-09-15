@@ -34,9 +34,9 @@ The system answers **where to look**, not **what is wrong**. Disease and pest id
 
 | Dimension | V1 scope |
 |---|---|
-| Geography | One county, US Corn Belt (Iowa or Illinois) |
+| Geography | Story County, Iowa, restricted to the region under both Sentinel-2 relative orbits (64% of the county; see `RESULTS.md` finding 2) |
 | Crops | Corn and soybean |
-| Years | All seasons with Sentinel-2 L2A coverage of the AOI, 2017 onward; the last three held out in rotation |
+| Years | 2018 to 2025; the last three held out in rotation. 2017 excluded, see `RESULTS.md` finding 1 |
 | Season window | Roughly May through September, bounded by phenology not calendar |
 | Zone size | 10m, matching Sentinel-2 native resolution |
 | Field definition | USDA Crop Sequence Boundaries polygons |
@@ -116,7 +116,19 @@ The temporal baseline is aligned by **accumulated growing degree days**, not cal
 - Corn: base 50°F, cap 86°F.
 - Soybean: base 50°F. Note that soybean development is strongly photoperiod and maturity-group driven and there is no authoritative GDD-per-stage table. Soybean phenology alignment is therefore weaker than corn and this limitation is stated in results rather than hidden.
 
-The per-zone baseline is stratified by crop. A zone's corn years and its soybean years form separate baselines, because canopy structure and index scale differ between the two and a pooled baseline would register a routine rotation as an anomaly. Under a standard corn-soy rotation this halves the usable history per zone, to roughly four seasons per crop out of nine. Effective history length per zone-crop is measured and reported in `RESULTS.md`, never assumed.
+The per-zone baseline is **within-field relative**, not absolute. For zone i in field f at phenology bin b in year t:
+
+```
+relative_index(i, t, b) = index(i, t, b) - median over zones in f of index(., t, b)
+baseline(i, b)          = mean over prior years of relative_index(i, ., b)
+residual(i, t, b)       = relative_index(i, t, b) - baseline(i, b)
+```
+
+The field centre is a median rather than a mean so that a large anomaly covering a substantial share of the field cannot drag the centre toward itself and shrink its own residual.
+
+Crop is a property of the field-year, not of the zone. Corn Belt fields rotate as whole units, so within any field-year every zone shares one crop, and so does the weather, the planting date and the management. Measuring each zone against its own field in the same year cancels all of them at once. The baseline therefore pools every prior year regardless of crop, which keeps usable history at five to seven seasons rather than the two to four that crop stratification left. Effective history length is measured and reported in `RESULTS.md`, never assumed.
+
+Within-field relativity does not cancel a zone-by-crop interaction, where a zone's relative standing genuinely differs between corn years and soybean years. A crop-stratified variant of S1 is therefore a candidate refinement in the ablation ladder, admitted only if it measurably improves lift over B1b, exactly like any other signal. Step 2 reports the across-zone correlation between mean relative standing in corn years and in soybean years as a diagnostic, not as a gate.
 
 Crop-specific parameters live in a **crop registry table**, one row per crop, keyed by CDL code:
 
@@ -145,11 +157,11 @@ Rungs 1 and 2 involve no training. Holdout structure still applies to evaluation
 
 ### Ground truth
 
-**Primary label.** A zone-year is underperforming when its end-of-season residual falls in the bottom decile of residuals within that field-year. The residual is the late-season index minus the zone's phenology-aligned baseline, estimated leave-one-year-out as described under Circularity control. The base rate is fixed at 10% by construction and is stated here before any data was pulled, which makes lift over random arithmetic rather than a quantity discovered afterwards.
+**Primary label.** A zone-year is underperforming when its end-of-season residual falls in the bottom decile of residuals within that field-year. The residual is the within-field relative residual defined in Section 8, with its baseline estimated leave-one-year-out as described under Circularity control. The base rate is fixed at 10% by construction and is stated here before any data was pulled, which makes lift over random arithmetic rather than a quantity discovered afterwards.
 
 This is a ranking-quality label, not an incidence label. It answers "under a fixed scouting budget, can the ranker find the worst zones in this field-year," which is the question the product answers. It does not answer "how often does something go wrong," which is what the secondary label addresses.
 
-A per-zone standard-deviation threshold was rejected on three counts. With crop stratification (Section 8) there are roughly four usable prior seasons per zone-crop, far too few to estimate a standard deviation. It selects on estimation error, so zones whose variance is underestimated by chance are flagged every year. And it flags backwards, tripping stable zones on trivial deviations while giving erratic zones a band they rarely cross.
+A per-zone standard-deviation threshold was rejected on three counts. A held-out year has five to seven prior seasons behind it, so an annual residual standard deviation would rest on five to seven points, far too few. It selects on estimation error, so zones whose variance is underestimated by chance are flagged every year. And it flags backwards, tripping stable zones on trivial deviations while giving erratic zones a band they rarely cross.
 
 **Secondary label.** Absolute end-of-season underperformance: the bottom decile of raw index within field. The NDVI k-means baseline (B2) is expected to do well on this label and poorly on the primary one. Both labels are reported for every method; the gap between them is the thesis, stated as a measurement.
 
@@ -180,13 +192,14 @@ The split logic is unit tested at both layers. One test asserts that no field us
 - **Lift over NDVI k-means baseline** — the commercial comparison.
 - False positive rate at each k.
 - Base rate per field-year, under each label.
+- **Zone-by-crop correlation**, reported from Step 2: the across-zone correlation between a zone's mean relative standing in corn years and in soybean years. This is a diagnostic on the pooled baseline of Section 8, reported in `RESULTS.md` whatever its value. It does not gate anything and no threshold is set on it; the crop-stratified variant of S1 earns its place by lift or not at all.
 
 All metrics are reported under both labels, for every method and both baselines.
 
 ### Baselines
 
 - **B1a, level persistence.** Ranks zones within a field by their multi-year mean index, ascending, computed from prior years only. It predicts that the zones which have always been worst will be worst again. Permanent soil structure repeats annually, which makes it hard to beat on the **secondary** label. It is scored against the primary label as well, but see the pre-registered prediction below.
-- **B1b, anomaly persistence. The headline null.** Ranks zones by their prior-year residual, ascending. It predicts that the zones which were unusually bad last year will be unusually bad again. It is construct-matched to the primary label, since both are measured on the residual, so it is not handicapped by the label definition and can genuinely win.
+- **B1b, anomaly persistence. The headline null.** Ranks zones by their residual in the most recent prior year **with the same crop**, ascending. It predicts that the zones which were unusually bad the last time this crop was grown will be unusually bad again. Under the rotation measured at Step 0 that is usually two years back; where a field does not rotate it reduces to the prior year. Same-crop rather than simply prior-year, because if a zone-by-crop interaction exists then last year's residual is anti-informative about a crop-specific recurrence, which would handicap the null a second time by a different route. It is construct-matched to the primary label, since both are measured on the same residual, so it can genuinely win.
 - **B2, NDVI k-means.** k-means on a vegetation index into 2 to 7 zones, matching what commercial platforms ship. Rank zones by cluster mean.
 
 **Pre-registered prediction, written before Step 0 ran and before any data was pulled.** B1a is expected to score at or near chance against the primary label, because the primary label subtracts the zone mean that B1a ranks on. Any large lift over B1a on the primary label is therefore an artifact of the label definition and must not be reported as evidence that the ranker works. The honest headline is lift over B1b on the primary label, and lift over B1a on the secondary label. This paragraph exists so that the distinction cannot be quietly dropped after results are seen.
