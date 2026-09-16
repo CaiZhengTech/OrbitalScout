@@ -204,6 +204,8 @@ This single reframe drives most of the rest of the design.
 
 **Cost.** Deeper dependence on Google and on export limits. Both were already accepted. Planetary Computer is retained as an independent cross-check on a sample of zones.
 
+**Amendment (2026-09-15).** "Local code starts at DuckDB" is one step too strong. Earth Engine exports a per-season image cube, one band per acquisition date, and local code reshapes that cube into long rows before DuckDB. The reshape contains no masking, no reprojection, no aggregation and no thresholds, so the shared-once rule holds, but it is a local step and the claim is corrected rather than defended. Reason in `docs/reviews/2026-09-15-step1-architecture.md`, Decision 3.
+
 Raised in `docs/reviews/2026-09-14-spec-review.md`, finding 5.
 
 ---
@@ -226,7 +228,7 @@ Raised in `docs/reviews/2026-09-14-spec-review.md`, finding 6.
 
 **Rejected: a crop-stratified absolute baseline.** Adopted in the morning of 2026-09-14 and removed the same day once Step 0 measured the rotation. Crop changes across 82% of consecutive year pairs, which left two to four seasons per zone-crop and only two or three for the earliest held-out year. A mean of two seasons is not a baseline; one unusual year is half of it.
 
-**Rationale.** Crop is a property of the field-year, not of the zone. Corn Belt fields rotate as whole units, so within a field-year every zone shares one crop, one weather record, one planting date and one management regime. Measuring each zone against its own field in the same year cancels all of them simultaneously, and the quantity that survives is the zone's persistent relative standing plus whatever is different about it this year. That is also exactly what the product ranks, and what the primary label already scores, so the change makes the baseline consistent with both rather than introducing a new idea.
+**Rationale.** Crop is a property of the field-year, not of the zone. Corn Belt fields rotate as whole units, so within a field-year every zone shares one crop, one weather record, one planting date and one management regime. For CSB polygons this is definitional rather than assumed: CSB carries one crop code per field per year (`CROP18` through `CROP25`), so a field-year has exactly one crop by construction, and pixel-level CDL disagreement inside a field is CDL noise rather than information. Measuring each zone against its own field in the same year cancels all of them simultaneously, and the quantity that survives is the zone's persistent relative standing plus whatever is different about it this year. That is also exactly what the product ranks, and what the primary label already scores, so the change makes the baseline consistent with both rather than introducing a new idea.
 
 **The follow-up question this invites:** "Doesn't that throw away the crop information?" Answer: it throws away the crop *level*, which is a field-year constant and is noise for a within-field ranking. It keeps any zone-by-crop interaction as a candidate refinement that has to earn its place by lift.
 

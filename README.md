@@ -1,54 +1,180 @@
-# OrbitalScout
+# 🛰️ OrbitalScout: Satellite Scouting Priority for Row-Crop Fields
 
-Rank sub-field zones by how urgently they warrant a physical visit, measured against each zone's own multi-year history.
+**Rank sub-field zones by how urgently they warrant a physical visit, measured against each zone's own multi-year history.**
 
 It answers **where to scout**, never **what is wrong**.
 
-> **Status: Step 0 complete, Step 1 not started.**
-> The specification (`SPEC.md`) and the evaluation protocol it contains were written before any
-> data was touched, and are committed here with timestamps to prove it. Step 0 has since run and
-> its measured output is in `RESULTS.md`. No evaluation result exists yet.
-> Every unmeasured metric is marked `[TBD]` and will be replaced only by measured output.
-> There are no estimated, illustrative, or placeholder numbers anywhere in this repository.
+> **Status: Step 0 complete, Step 1 in progress.**
+> The specification and its evaluation protocol were committed before any data was touched, with
+> timestamps to prove it. Step 0 has run; its measured output is in [`RESULTS.md`](RESULTS.md).
+> **No evaluation result exists yet.** Every unmeasured figure in this repository is marked `[TBD]`.
+> There are no estimated, illustrative, or placeholder numbers anywhere in it.
 
 ---
 
-## The problem
+## 📋 Overview
 
-A farmer with a 100 acre field cannot walk all of it. Problems appear in patches, not uniformly. The real question is never "is my field healthy" but "where do I spend the two hours I actually have today."
+A farmer with a 100 acre field cannot walk all of it. Problems appear in patches, not uniformly, and the useful question is never "is my field healthy" but **"where do I spend the two hours I actually have today."**
 
-Existing tools colour a map by vegetation index and leave the interpretation to the user. That is a visualisation, not a recommendation, and it carries no statement about whether the highlighted areas are the right ones to visit.
+Commercial tools answer this by colouring a map by vegetation index. That is a visualisation, not a recommendation, and it comes with no statement about whether the highlighted areas are the right ones to visit.
 
-## The core idea
+OrbitalScout produces a **ranked list of 30m zones under a scouting budget**, built from free Sentinel-2 imagery and eight growing seasons of history, and then measures how good that ranking actually is against a commercial baseline and two null models.
 
-Ranking zones by **absolute** vegetation index value produces a map of permanent soil structure: the sandy corner, the compacted headland, the low wet spot. Those zones score badly every year for reasons that have nothing to do with an emerging problem, and the farmer already learned where they are twenty years ago. A tool that flags them is reporting the soil map.
+The detection method is not the point. NDVI zoning is commercially shipped; within-parcel anomaly detection is published. **What a bounded literature search did not find is anyone reporting whether such rankings are correct**: no precision@k, no false-positive rate, no comparison against a null. The contribution is the evaluation.
+
+---
+
+## 🎯 The Core Idea
+
+Ranking zones by **absolute** vegetation index reproduces the permanent soil map: the sandy corner, the compacted headland, the low wet spot. Those zones score badly every year for reasons unrelated to any emerging problem, and the farmer learned where they are twenty years ago. A tool that flags them is reporting the soil map back.
 
 The actionable signal is **deviation from a zone's own history**. A zone that is normally fine and is suddenly behind is worth driving out to see. A zone that is always behind is not news.
 
-OrbitalScout ranks zones by that deviation, aligned by accumulated growing degree days rather than by calendar date, and then reports how good that ranking actually is under a fixed scouting budget.
+One refinement makes this work with only eight seasons of data. Rather than compare each zone to its own absolute history, compare it to **how it usually stands relative to the rest of its own field.** Crop type, weather, planting date and management are all properties of the *field-year*, not the zone, because Corn Belt fields rotate as whole units. Measuring within the field cancels all of them at once.
 
-## What this deliberately does not do
+---
 
-- **No disease or pest identification.** At 10m ground sample distance the signal required to distinguish causes is not present. Claiming otherwise would be an overclaim.
+## 🏗️ Architecture and Pipeline
+
+```
+   Earth Engine (one expression)                 Local (DuckDB over Parquet)
+ ┌──────────────────────────────────┐        ┌────────────────────────────────┐
+ │ Sentinel-2 L2A  ──┐              │        │                                │
+ │ Cloud Score+    ──┤ mask         │        │  melt ──> fields               │
+ │                   │ index @10m   │ export │           zones                │
+ │ USDA CSB        ──┤ reduce @30m  │ ─────> │           zone_obs             │
+ │ (fields + crop)   │ EPSG:5070    │  cube  │              │                 │
+ │                   │              │        │              v                 │
+ │ Open-Meteo GDD  ──┘              │        │  baseline ──> signals ──> rank │
+ └──────────────────────────────────┘        │                        │       │
+                                             │                        v       │
+                                             │   evaluate: precision@k, lift, │
+                                             │   blocked splits, null models  │
+                                             └────────────────┬───────────────┘
+                                                              v
+                                              static MapLibre demo (no backend)
+```
+
+**Masking, CRS reprojection and zonal aggregation happen exactly once, inside a single Earth Engine expression.** Every signal reads one clean feature table and none reimplements any of them, because two competing definitions of "clear observation" would make the persistence signal meaningless.
+
+The local reshape is a reshape and nothing else: no masking, no reprojection, no thresholds. A masked pixel becomes an **absent row**, never a zero.
+
+---
+
+## 🛠️ Technical Stack
+
+| Layer | Choice | Why this and not the obvious alternative |
+|---|---|---|
+| Imagery and masking | Google Earth Engine | Cloud Score+ lives here, and doing pixels elsewhere would mean two grids and a co-registration problem |
+| Cloud masking | Cloud Score+ `cs` >= 0.60 | Shadow is the dominant false positive and the SCL band handles it worst |
+| Field boundaries | USDA CSB, Earth Engine asset | USDA already solved road and rail splitting; the Common Land Unit is legally unavailable |
+| Storage | DuckDB over Parquet | About 180M rows, roughly 3 GB. Chosen for join ergonomics at small scale, not for scale |
+| Raster IO | rasterio | Reads the exported cube. Nothing else touches a raster |
+| Compute | NumPy, pandas, CPU only | Zero marginal cost is a project goal |
+| Testing | pytest | Split logic and the melt are the highest-value tests in the repo |
+| Demo | MapLibre GL JS, one HTML file | A live API is a thing that breaks in six months when a free tier lapses |
+
+**Deliberately not used:** PostGIS, Spark, Sedona, Docker, Kubernetes, any workflow orchestrator, any backend API, any frontend framework, and so far any machine learning model. The pipeline is five linear stages in a Makefile.
+
+---
+
+## 🧮 Mathematical Foundation
+
+### Vegetation indices
+
+Computed per 10m pixel **before** aggregation to 30m, because a mean of ratios is not a ratio of means.
+
+$$NDVI = \frac{B8 - B4}{B8 + B4} \qquad NDRE = \frac{B8 - B5}{B8 + B5} \qquad NDWI = \frac{B8 - B11}{B8 + B11}$$
+
+NDVI tracks canopy biomass, NDRE tracks chlorophyll through the red edge, and the Gao form of NDWI tracks vegetation water content, which is what lets it catch water stress before visible decline.
+
+### The within-field relative residual
+
+For zone $i$ in field $f$ at phenology bin $b$ in year $t$:
+
+```
+relative_index(i, t, b) = index(i, t, b) - median over zones in f of index(., t, b)
+baseline(i, b)          = mean over prior years of relative_index(i, ., b)
+residual(i, t, b)       = relative_index(i, t, b) - baseline(i, b)
+```
+
+The field centre is a **median**, not a mean, so that an anomaly covering a large share of the field cannot drag the centre toward itself and shrink its own residual.
+
+### Phenology alignment
+
+The baseline is aligned by accumulated growing degree days rather than calendar day, because two zones on the same date may be at different growth stages:
+
+$$GDD = \sum_{d} \max\left(0, \frac{\min(T_{max}, T_{cap}) + \max(T_{min}, T_{base})}{2} - T_{base}\right)$$
+
+Corn uses $T_{base} = 50°F$ and $T_{cap} = 86°F$. Soybean development is photoperiod and maturity-group driven with no authoritative GDD-per-stage table, so its alignment is weaker. That limitation is reported, not hidden.
+
+### Evaluation
+
+$$\text{precision@}k = \frac{|\\{\text{top-}k\text{ ranked}\\} \cap \\{\text{underperforming}\\}|}{k} \qquad \text{lift} = \frac{\text{precision@}k}{\text{precision@}k \text{ of the baseline}}$$
+
+The primary label is the bottom decile of residuals within each field-year, so the base rate is **10% by construction**, fixed before any data was pulled. That makes lift over random arithmetic rather than a quantity discovered afterwards.
+
+---
+
+## 🌟 What the System Does
+
+### 🛰️ Ingestion with one definition of everything
+Sentinel-2 joined to Cloud Score+ by `system:index`, masked, indexed and reduced to 30m zones in a single Earth Engine expression, reprojected once to EPSG:5070. A CRS mismatch raises rather than silently reprojecting.
+
+### 📉 Baseline-relative anomaly ranking
+Each zone is scored against its own phenology-aligned history of relative standing, over five to seven prior seasons, not against a global threshold or a neighbouring field.
+
+### 🧪 Six signals, admitted one at a time
+S1 temporal anomaly, S2 spatial anomaly, S3 multi-index divergence, S4 velocity, S5 persistence, S6 soil-context residual. **A signal ships only if it measurably improves lift.** Ones that do not are removed and their null result recorded. Building a signal does not entitle it to ship.
+
+### 📊 A ranking evaluation harness
+precision@k at a scouting budget, lift over random, lift over a commercial NDVI k-means baseline, and lift over two null models. Splits blocked by field **and** year, never randomly, because adjacent zones are spatially autocorrelated and are not independent samples.
+
+### 🗺️ A static, precomputed demo
+Two maps side by side, same field, same date, with a scouting budget slider. No backend, so nothing expires.
+
+---
+
+## 🚫 What This Deliberately Does Not Do
+
+These are constraints, not gaps.
+
+- **No disease or pest identification.** At 10m ground sample distance the signal to distinguish causes is not present. Claiming otherwise would be an overclaim.
 - **No yield prediction** in physical units.
-- **No real-time operation.** Cadence is governed by cloud-free satellite revisit, typically 8 to 12 days in temperate growing regions. Output updates on each cloud-free pass.
+- **No real-time operation.** Cadence is governed by cloud-free satellite revisit. Output updates on each cloud-free pass.
 - **No prescription maps** or machine-executable output.
 - **No live API or hosted service.** The demo is precomputed and static.
 - **No coverage outside the contiguous United States.** Crop labels and soil data are US-specific.
 
-## What is actually being contributed
+---
 
-The detection components already exist in prior work. NDVI zoning is commercially shipped. NDVI change detection exists in Microsoft's FarmVibes.AI. Within-parcel anomaly detection is published as EOAD and validated on rice. See [Prior art](#prior-art).
+## 📊 Results
 
-What a bounded search did not find is anyone reporting whether such rankings are **correct**: no precision@k, no false-positive rate, no comparison against a null model.
+### Step 0: clear observation count (measured)
 
-**The contribution is the evaluation, not the detection.**
+Story County, Iowa. Distinct acquisition dates on which a pixel was clear, sampled over corn and soybean cropland. Full detail in [`RESULTS.md`](RESULTS.md).
 
-That framing is deliberately smaller than "I built a crop monitoring platform," and it is a great deal more defensible.
+| year | dates | p10 | median | p90 | AOI under 2+ orbits |
+|---|---|---|---|---|---|
+| 2017 | 26 | **5** | 11 | 14 | 65% |
+| 2018 | 58 | 10 | 22 | 26 | 64% |
+| 2019 | 61 | 8 | 19 | 23 | 64% |
+| 2020 | 61 | 12 | 25 | 29 | 65% |
+| 2021 | 60 | 16 | 32 | 36 | 64% |
+| 2022 | 61 | 12 | 25 | 29 | 64% |
+| 2023 | 61 | 17 | 30 | 34 | 64% |
+| 2024 | 60 | 17 | 29 | 34 | 65% |
+| 2025 | 67 | 15 | 24 | 31 | 64% |
 
-## Results
+**Gate G-0 passed**: median 25 against a threshold of 6. Three findings changed the design as a result:
 
-Step 0 output is in [`RESULTS.md`](RESULTS.md). No evaluation result exists yet; the table below is the output of the build, not a target.
+1. **2017 is single-satellite** and not comparable to later years. Excluded.
+2. **Two orbits split the county.** 64% of it gets roughly twice the observations of the rest, along a boundary with no agronomic meaning. The AOI is restricted to the doubly covered region.
+3. **Crop rotation halves per-zone history.** Crop changes across 82% of consecutive year pairs, leaving 2 to 4 seasons per zone-crop. This is what forced the within-field relative baseline.
+
+### Evaluation results
+
+No evaluation has been run. This table is the output of the build, not a target.
 
 | Metric, primary label | NDVI k-means (B2) | Level persistence (B1a) | Anomaly persistence (B1b) | OrbitalScout |
 |---|---|---|---|---|
@@ -58,198 +184,161 @@ Step 0 output is in [`RESULTS.md`](RESULTS.md). No evaluation result exists yet;
 | precision@20% | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` |
 | False positive rate @10% | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` |
 
-Base rate is 10% by construction under the primary label, so lift over random is precision@k divided by 0.10. All metrics are also reported under the secondary absolute label, where B1a and B2 are the fair comparisons.
-
-**Lift over B1b, anomaly persistence, at the scouting budget is the headline number.** Lift over B1a on this label is expected to be large and meaningless; see the pre-registered prediction in `SPEC.md` Section 10.
+**Lift over B1b, anomaly persistence, at the scouting budget is the headline number.**
 
 ### A negative result is pre-committed as valid
 
-The headline null is anomaly persistence: rank zones by their residual the last time this crop was grown, predicting that whatever was unusually bad then is unusually bad again. Because problems recur in the same places, it is genuinely hard to beat. There is a real chance OrbitalScout does not beat it.
+The headline null ranks zones by their residual the last time this crop was grown, predicting that whatever was unusually bad then is unusually bad again. Because problems recur in the same places, it is genuinely hard to beat, and there is a real chance OrbitalScout does not beat it.
 
-If that happens it is reported as the headline finding, in these words: *prior-year anomaly explains this year's anomaly, and the anomaly-persistence null was not beaten at the scouting budget.* If B1a additionally wins on the secondary absolute label, that is reported as a second finding: permanent soil structure dominates the absolute signal. The protocol will not be retuned, neither null will be dropped, and the project will not be reframed to avoid saying so.
+If that happens it is reported as the headline finding, in these words: *prior-year anomaly explains this year's anomaly, and the anomaly-persistence null was not beaten at the scouting budget.* The protocol will not be retuned, neither null will be dropped, and the project will not be reframed to avoid saying so.
 
-This paragraph exists in the repository before the results do, specifically so that it cannot be quietly removed afterwards.
+This paragraph is in the repository before the results are, specifically so that it cannot be quietly removed afterwards.
 
-## How it works
+---
 
-```
-Sentinel-2 L2A  --+
-Cloud Score+    --|
-USDA CSB        --+-->  ingest  -->  zone feature  -->  baseline  -->  signals  -->  rank
-USDA CDL        --|    (mask, reproject,   table        (GDD-aligned,   (S1..S6)      |
-USDA SDA soil   --|     aggregate: once)  (DuckDB over   within-field)                |
-Open-Meteo GDD  --+                        Parquet)                                   |
-                                                                                      v
-                                                                    evaluate  <-------+
-                                                        (precision@k, lift, blocked splits)
-                                                                        |
-                                                                        v
-                                                            static MapLibre demo
-```
+## ⚙️ Installation
 
-**Masking, CRS reprojection, and zonal aggregation happen exactly once, at ingestion, in a single Earth Engine expression.** Every signal reads one clean feature table. No signal reimplements any of them, because two competing definitions of "clear observation" would make the persistence signal meaningless.
+### Prerequisites
 
-All spatial data is reprojected once to EPSG:5070 (NAD83 / Conus Albers). CRS equality is asserted before any spatial join, and a mismatch raises rather than silently reprojecting.
+- Python 3.11 or higher, developed on 3.14
+- A Google Earth Engine account and cloud project, free for non-commercial use
+- About 5 GB of disk space for the exported cubes and the DuckDB store
+- CPU only. No GPU is used anywhere in this project
 
-### Signals
+### Setup
 
-Six signals, each detecting a physically different failure mode, all sharing one signature:
+```bash
+git clone https://github.com/CaiZhengTech/orbitalscout.git
+cd orbitalscout
 
-```python
-def score(zone_features: pd.DataFrame, context: Context) -> pd.Series:
-    """One score per zone-date."""
+python -m venv .venv
+source .venv/bin/activate        # Linux and macOS
+# .venv\Scripts\activate         # Windows
+
+pip install -r requirements.txt
 ```
 
-| ID | Signal | What it catches that the others miss | Ships? |
-|---|---|---|---|
-| S1 | Temporal anomaly vs the zone's own GDD-aligned history | The baseline signal | `[TBD]` |
-| S2 | Spatial anomaly vs neighbouring zones, same date | First-year problems with no history; cancels whole-field effects like regional drought | `[TBD]` |
-| S3 | Multi-index divergence across NDVI, NDRE, NDWI | Water stress before visible decline | `[TBD]` |
-| S4 | Velocity, the rate of change of S1 | Earlier detection than level-based signals | `[TBD]` |
-| S5 | Persistence, run length of consecutive anomalies | Suppresses missed cloud shadow, the dominant false positive | `[TBD]` |
-| S6 | Soil-context residual after regressing on SSURGO drainage and slope | Separates "bad because always sandy" from "bad beyond what soil explains" | `[TBD]` |
+### Earth Engine authentication
 
-**Admission rule:** a signal ships only if it measurably improves lift over persistence. Signals that do not are removed from the combination and their null result is recorded in `RESULTS.md`. Building a signal does not entitle it to ship.
+```bash
+earthengine authenticate
+export ORBITALSCOUT_EE_PROJECT=your-ee-project-id
+```
 
-### Combination
+Sign up at [earthengine.google.com/signup](https://earthengine.google.com/signup/) if you do not have a project yet.
 
-A deliberate complexity ladder. Each rung must beat the one below it to justify existing.
+---
 
-1. Single signal, sorted. No model, no training.
-2. Weighted sum of z-scored signals, sorted. No hyperparameters.
-3. LightGBM learning the combination.
+## 🚀 Usage
 
-If rung 3 does not beat rung 2 it is cut and that is reported. A weighted sum being sufficient is a finding, not a failure.
+### Run the Step 0 gate
 
-## Evaluation protocol
+```bash
+python scripts/step0_observations.py --project $ORBITALSCOUT_EE_PROJECT
+```
 
-Frozen in `SPEC.md` Section 10 before any data was touched.
+Counts clear observations per zone for every season and evaluates gate G-0. Takes roughly six minutes.
 
-**Splits are blocked by field AND by year. Never a random split of zones.** Adjacent zones are spatially autocorrelated and are not independent samples; a random zone split leaks neighbouring information into the test set and produces an excellent number that means nothing. This is the same class of error as shared-group leakage in image datasets.
+### Run the tests
 
-The split logic is the most important tested code in the repository. `tests/test_splits.py` asserts two things: nothing is fit on a test field or a test year, and every per-zone baseline uses only years strictly before the year it is applied to. The baseline is a feature, not a fit, and is governed by the temporal rule only.
+```bash
+python -m pytest tests/ -q
+```
 
-**Circularity control.** A mandatory temporal gap separates the feature window from the label window. Features may not use observations from inside the label window. The gap is configured once and recorded.
+### Remaining stages
 
-**The primary label is a proxy**, namely a zone's end-of-season residual falling in the bottom decile within its field-year. The base rate is therefore 10% by construction, fixed before any data was pulled. A secondary label, absolute end-of-season underperformance, is reported alongside it so that the commercial baseline is evaluated on the question it was built to answer. Neither label is independent ground truth: both are computed from the same satellite index as the prediction, and that limitation is stated plainly rather than buried.
+`[TBD]`. Steps 1 through 4 are not yet runnable. The Makefile lands with Step 1.
 
-### Acceptance gates
+---
 
-| Gate | Condition | If it fails |
-|---|---|---|
-| G-0 | Median clear observations per season >= 6 for the AOI | Widen phenology bins, add Sentinel-1, or change AOI. **Runs first, before anything else is built.** |
-| G-1 | Split function passes leakage tests | Stop. Nothing downstream is valid. |
-| G-2 | Ranker beats random at precision@10% | Investigate before proceeding |
-| G-3 | Ranker beats the persistence null at precision@10% | **Not required to pass.** Reported as the primary finding either way. |
-| G-4 | CDL rotation mismatch below 10% on test fields | Restrict to fields with confirmed stable rotation |
-
-Current gate status: `[TBD]`, none run yet.
-
-## Build order
-
-Strictly sequential. Each step runs end to end before the next begins.
-
-- [x] **Step 0.** Clear observation count. **G-0 passed**: median 25 clear observations per season against a threshold of 6. Three findings changed the design; see `RESULTS.md`.
-- [ ] **Step 1.** Ingestion. CSB boundaries, zone construction, CDL labels, one Earth Engine expression that masks and zonally reduces every season, export at both 10m and 30m, load into DuckDB. Zone size is decided here, from measurement.
-- [ ] **Step 2.** Baseline construction. GDD accumulation, phenology-aligned per-zone history.
-- [ ] **Step 3.** Signal S1 alone. Sort by it. No model.
-- [ ] **Step 4.** Evaluation harness. Persistence null, NDVI k-means baseline, precision@k, lift, blocked splits. **The project is complete and shippable at this point.**
-- [ ] **Step 5+.** One signal at a time. Implement, measure the delta in lift, keep or cut, record the result either way.
-- [ ] **Last.** Static MapLibre demo.
-
-Everything after Step 4 is an ablation study. Steps 0 through 4 done well beats all six signals half-finished.
-
-## Scope
-
-| Dimension | V1 |
-|---|---|
-| Geography | Story County, Iowa, restricted to the region under both Sentinel-2 relative orbits (64% of the county) |
-| Crops | Corn and soybean |
-| Years | 2018 to 2025; last three held out in rotation. 2017 excluded as single-satellite |
-| Season window | Roughly May through September, bounded by phenology not calendar |
-| Zone size | Configurable; 10m or 30m, decided by measurement at Step 1 `[TBD]` |
-| Baseline | Within-field relative, pooled across crops; 5 to 7 prior seasons per held-out year |
-| Field definition | USDA Crop Sequence Boundaries polygons |
-
-Crop-specific parameters live in a registry table keyed by CDL code. Adding a crop means adding a row. No crop name appears in a conditional anywhere in the codebase.
-
-## Data sources
-
-All free. Registration requirements are flagged because they gate the start of work.
-
-| Purpose | Source | Access | Registration |
-|---|---|---|---|
-| Optical time series | Sentinel-2 L2A | Earth Engine `COPERNICUS/S2_SR_HARMONIZED`, masked and reduced in one expression | Earth Engine |
-| Cloud and shadow masking | Cloud Score+ | Earth Engine `GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED` | Earth Engine |
-| Field polygons | USDA Crop Sequence Boundaries | Source Cooperative `fiboa/us-usda-cropland`, GeoParquet | No |
-| Crop labels | USDA Cropland Data Layer | CropScape REST or Earth Engine | No |
-| Multi-year zone prior (rung 3 only) | AlphaEarth Satellite Embedding | Earth Engine `GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL` | Earth Engine |
-| Drainage class, slope | USDA Soil Data Access | POST to SDMDataAccess | No |
-| Daily temps for GDD | Open-Meteo Historical | `archive-api.open-meteo.com` | No |
-
-Known constraints, stated rather than assumed away:
-
-- **CDL is released the following February**, so in-season crop type comes from the prior year. The rotation mismatch rate is measured on the test fields, not assumed (gate G-4).
-- **AlphaEarth is annual** and cannot supply in-season signal. It is a multi-year zone prior only.
-- **CSB polygons are synthetic field units**, not legal parcels. Adjacent same-crop fields not separated by a road or rail line may merge.
-
-## Stack
-
-DuckDB over Parquet, local, CPU only. The full modelling dataset is single-digit GB and fits on a laptop.
-
-Chosen for join ergonomics at small scale, not for scale itself: the joins across five years of zone-level data are cleaner in SQL, and DuckDB reads Parquet directly with no server.
-
-Deliberately not used: PostGIS, Spark, Sedona, Docker, Kubernetes, any workflow orchestrator, any backend API, any frontend framework. The pipeline is five linear stages in a Makefile, run on demand. An orchestrator would be infrastructure for a scheduling problem that does not exist here.
-
-## Repository layout
+## 📁 Project Structure
 
 ```
 orbitalscout/
-  config.py         AOI, years, CRS, paths, thresholds. One place.
-  crops.py          crop registry table loader
-  ingest/           stac, masking, boundaries, cdl, soil, weather, embeddings
-  zones.py          zone construction, inward buffer
-  features.py       indices, exactextract zonal aggregation
-  baseline.py       phenology-aligned per-zone historical baseline
-  signals.py        six functions, one shared signature
-  rank.py           combination and sort
-  baselines.py      persistence null, NDVI k-means
-  evaluate.py       precision@k, lift, splits
-  export.py         precomputed GeoJSON for the demo
+├── config.py                 # AOI, years, thresholds. One place, one definition each
+├── crops.py                  # crop registry, keyed by CDL code. No crop name in a conditional
+├── ingest/
+│   ├── gee.py                # S2 + Cloud Score+ + index + reduce, one expression, cube export
+│   ├── melt.py               # cube to long rows. A reshape only: no mask, no reproject
+│   ├── masking.py            # the single clear-observation threshold
+│   ├── boundaries.py         # CSB field selection, inward buffer, field_id painting
+│   ├── cdl.py                # G-4 mismatch rate only. Not a source of zone crop labels
+│   ├── soil.py               # SSURGO drainage class and slope
+│   ├── weather.py            # Open-Meteo, GDD accumulation
+│   └── crosscheck.py         # independent Planetary Computer pull on a zone sample
+├── zones.py                  # zone construction, inward buffer
+├── features.py               # index computation over the exported zone table
+├── baseline.py               # within-field relative, phenology-aligned baseline
+├── signals.py                # six functions, one shared signature
+├── rank.py                   # combination and sort
+├── baselines.py              # persistence nulls, NDVI k-means
+├── evaluate.py               # precision@k, lift, blocked splits
+└── export.py                 # precomputed GeoJSON for the demo
+
+scripts/step0_observations.py # gate G-0
 tests/
-  test_splits.py    leakage tests. The most important tests in the repo.
-  test_zonal.py     zonal aggregation against a known synthetic raster
-  test_baseline.py  baseline against a known synthetic series
-demo/
-  index.html        MapLibre, one file, no backend
-Makefile            five linear stages
+├── test_splits.py            # leakage tests. The most important tests in the repo
+├── test_melt.py              # a masked pixel becomes an absent row, never a zero
+└── test_baseline.py          # baseline against a known synthetic series
+demo/index.html               # MapLibre, one file, no backend
+docs/reviews/                 # dated design reviews, all predating the data
 ```
 
-## Documents
+---
+
+## 🧪 Testing Philosophy
+
+**Test what fails silently. Skip what fails loudly.**
+
+Tested: split logic, the cube-to-rows melt, baseline computation, CRS assertions, nodata handling.
+
+Not tested: satellite API responses, visual output, anything needing network access in CI.
+
+The melt tests were written before `melt.py` existed, and the load-bearing one was then mutation checked: removing the value mask from the keep condition, which is exactly the bug it guards against, turns it red while the others stay green. A test that cannot fail is not evidence.
+
+The test that matters most is the split test. A random split of zones leaks spatially autocorrelated neighbours into the test set and produces an excellent number that means nothing.
+
+---
+
+## 📐 Design Documents
 
 | File | What it is |
 |---|---|
-| `SPEC.md` | What gets built. Contains the frozen evaluation protocol (Section 10). |
-| `DESIGN.md` | Why, and what was rejected. Decision records D1 through D14. |
-| `CLAUDE.md` | The operating agreement: hard rules, build order, what not to build. |
-| `RESULTS.md` | Measured outcomes, including null results. `[TBD]` |
-| `docs/reviews/` | Dated architectural reviews. The first predates any data. |
+| [`SPEC.md`](SPEC.md) | What gets built. Contains the frozen evaluation protocol (Section 10) |
+| [`DESIGN.md`](DESIGN.md) | Why, and what was rejected. Decision records D1 through D18 |
+| [`RESULTS.md`](RESULTS.md) | Measured outcomes, including null results |
+| [`CLAUDE.md`](CLAUDE.md) | The operating agreement: hard rules, build order, what not to build |
+| [`docs/reviews/`](docs/reviews/) | Dated architectural reviews. All predate the data that could have tuned them |
 
-## Prior art
+---
 
-Cited rather than obscured.
+## 📚 References and Prior Art
 
-- **EOSDA Crop Monitoring.** Commercial zoning via k-means on a vegetation index into 2 to 7 zones, with field prioritisation as a leaderboard sorted by NDVI change. This is baseline B2.
-- **Microsoft FarmVibes.AI.** `farm_ai/agriculture/change_detection` identifies NDVI outliers across dates. Cross-date within-season, not baseline-relative across years. Read as an architecture reference and not adopted, since its Docker cluster and YAML DAG framework exceed this project's scope.
-- **EOAD (Earth Observation-based Anomaly Detection)**, Burke et al. Within-parcel distributional anomaly thresholds, validated on rice. The closest published analog to the scouting-priority goal. Does not use ranking metrics.
-- **AlphaEarth Foundations**, Brown et al. 2025. 64-dimensional 10m annual embeddings, benchmarked at field level by the Stanford/Corteva "Harvesting AlphaEarth" paper for yield, tillage, and cover crop. No published evaluation at sub-field anomaly scale.
+Cited rather than obscured. The detection components exist in prior work.
 
-The claim here is framed as "rare and not found in a bounded search" rather than "never done."
+1. **EOSDA Crop Monitoring.** Commercial k-means zoning on a vegetation index into 2 to 7 zones, with field prioritisation as an NDVI-change leaderboard. This is baseline B2.
+2. **Microsoft FarmVibes.AI**, `farm_ai/agriculture/change_detection`. NDVI outliers across dates, cross-date within-season rather than baseline-relative across years. Read as an architecture reference, not adopted.
+3. **Burke et al.**, Earth Observation-based Anomaly Detection (EOAD). Within-parcel distributional anomaly thresholds, validated on rice. The closest published analog to the scouting-priority goal. Does not use ranking metrics.
+4. **Brown et al. (2025)**, *AlphaEarth Foundations*. 64-dimensional 10m annual embeddings. No published evaluation at sub-field anomaly scale.
+5. **Hunt, Abernethy, Beeson, Bowman, Wallander and Williams**, *Crop Sequence Boundaries: Delineated Fields Using Remotely Sensed Crop Rotations*, USDA NASS and ERS.
+6. **Pasquarella et al.**, Cloud Score+ for Sentinel-2 cloud and shadow assessment, Google Earth Engine.
+7. **Rouse et al. (1974)**, *Monitoring the Vernal Advancement and Retrogradation of Natural Vegetation*, NASA/GSFC. The original NDVI paper.
+8. **Gao (1996)**, *NDWI: a normalized difference water index for remote sensing of vegetation liquid water from space*, Remote Sensing of Environment.
+9. **Allen et al. (1998)**, FAO Irrigation and Drainage Paper 56. Source for the GDD conventions.
+10. **Wooldridge**, *Econometric Analysis of Cross Section and Panel Data*. The within transformation, which is what the field-relative baseline is.
 
-## Getting started
+The contribution claim is framed as **"rare and not found in a bounded search"** rather than "never done," because it rests on three research passes rather than on exhaustive proof of absence.
 
-`[TBD]`. Nothing is runnable yet. Setup instructions land with Step 0.
+---
 
-## License
+## 🙏 Acknowledgements
+
+- **USDA NASS and ERS** for Crop Sequence Boundaries and the Cropland Data Layer, both public domain.
+- **ESA and the Copernicus programme** for free and open Sentinel-2 imagery.
+- **Google Earth Engine** for Cloud Score+ and free non-commercial compute, and **Samapriya Roy** for the community catalog that hosts the CSB asset.
+- **Open-Meteo** for free historical weather.
+- **Microsoft Planetary Computer** for an independent Sentinel-2 source used as a cross-check.
+
+## 📄 License
 
 `[TBD]`

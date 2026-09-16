@@ -1,0 +1,10 @@
+# Pinned to what is actually imported today. Nothing speculative.
+# Regenerate by hand when a step adds a real dependency.
+
+earthengine-api==1.7.43
+numpy==2.5.3
+rasterio==1.5.1
+pandas==3.0.5
+pyarrow==25.0.1
+duckdb==1.5.5
+pytest==9.1.1
