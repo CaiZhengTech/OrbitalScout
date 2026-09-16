@@ -50,7 +50,7 @@ All sources are free. Registration requirements are flagged because they gate th
 | Sentinel-2 L2A | In-season optical time series | Earth Engine `COPERNICUS/S2_SR_HARMONIZED`, joined to Cloud Score+ by `system:index`, masked and zonally reduced in one expression | Earth Engine |
 | Sentinel-2 L2A (cross-check) | Independent check of exported values on a sample of zones | Planetary Computer `sentinel-2-l2a` via `pystac-client` | No |
 | Cloud Score+ | Cloud and shadow masking | Earth Engine `GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED` | Earth Engine |
-| USDA Crop Sequence Boundaries | Field polygons **and** per-field-year crop code (`CROP18` to `CROP25`) | Earth Engine `projects/nass-csb/assets/CSB1825_rev23/CSBIA1825`, public domain, 2018 to 2025 | Earth Engine |
+| USDA Crop Sequence Boundaries | Field polygons **and** per-field-year crop code (`CDL2018` to `CDL2025`) | Earth Engine `projects/nass-csb/assets/CSB1825_rev23/CSBIA1825`, public domain, 2018 to 2025 | Earth Engine |
 | USDA Cropland Data Layer | Not used for zone crop labels; CSB supplies those at field-year level. Retained only to quantify the G-4 prior-year mismatch rate | Earth Engine `USDA/NASS/CDL` | Earth Engine |
 | AlphaEarth Satellite Embedding | Multi-year zone prior. Rung 3 only; not ingested before rung 3 is reached | Earth Engine `GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL` | Earth Engine |
 | USDA Soil Data Access | Drainage class, slope | POST to `https://SDMDataAccess.sc.egov.usda.gov/Tabular/post.rest` | No |

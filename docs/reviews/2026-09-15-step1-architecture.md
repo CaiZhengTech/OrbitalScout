@@ -17,15 +17,15 @@ The 10m versus 30m comparison in #7 still happens, on a seeded random sample of 
 
 ## Decision 2. CSB comes from the Earth Engine community asset, not from a download
 
-`projects/nass-csb/assets/CSB1825_rev23/CSBIA1825`, public domain, 2018 to 2025 window, updated 2026-08-30. Properties include a field identifier and `CROP18` through `CROP25`, one CDL code per field per year.
+`projects/nass-csb/assets/CSB1825_rev23/CSBIA1825`, public domain, 2018 to 2025 window, updated 2026-08-30. Properties include a field identifier and `CDL2018` through `CDL2025`, one CDL code per field per year.
 
 This removes the GeoParquet download, the local filter, the asset upload and the local spatial join that D15 had left implicit. Field membership, the inward buffer, and the per-field-year crop label all happen inside Earth Engine. D15 now holds completely: masking, reprojection, aggregation and field assignment are one expression.
 
 Consequences:
 
-- **The CDL raster is not used in Step 1.** Zone crop is the field's `CROPyy` value. Under D17 the crop is a field-year property, and CSB assigns it at exactly that level, so pixel-level CDL disagreement inside a field is CDL noise rather than information. CDL is retained only as the source of the G-4 prior-year mismatch rate, which is now computed from the `CROPyy` columns directly.
+- **The CDL raster is not used in Step 1.** Zone crop is the field's `CDL<year>` value. Under D17 the crop is a field-year property, and CSB assigns it at exactly that level, so pixel-level CDL disagreement inside a field is CDL noise rather than information. CDL is retained only as the source of the G-4 prior-year mismatch rate, which is now computed from the `CDL<year>` columns directly.
 - **D17 is strengthened.** "Corn Belt fields rotate as whole units" was stated as an agronomic assumption. For CSB polygons it is definitional. Amend D17 to say so.
-- Field selection: CSB fields intersecting the AOI whose `CROPyy` is in the crop registry codes for at least six of the eight years. The threshold is a config value and its effect on field count is reported.
+- Field selection: CSB fields intersecting the AOI whose `CDL<year>` is in the crop registry codes for at least six of the eight years. The threshold is a config value and its effect on field count is reported.
 - Inward buffer is one zone width, 30m, applied to the polygon before it is painted to the zone grid, so no 30m zone straddles a field edge.
 
 The exact name of the field identifier property is confirmed at implementation with `.first().propertyNames()`; the catalogue page abbreviates it.

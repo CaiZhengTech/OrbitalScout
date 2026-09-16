@@ -77,6 +77,38 @@ A zone-by-crop interaction, where a zone's relative standing genuinely differs b
 
 `[TBD]`. Moved into Step 1. The Earth Engine expression that exports the zone table can emit 10m and 30m at negligible extra cost, and the comparison should be made on the within-field relative quantity that finding 3 settled. Prior expectation, recorded so it can be checked against the result: 30m will show lower year-over-year variance for stable zones, because it averages down Sentinel-2 co-registration jitter of roughly one pixel between passes.
 
+## Step 1: area of interest and field selection
+
+Measured 2026-09-16 with `orbitalscout/ingest/gee.py`.
+
+| quantity | value |
+|---|---|
+| County area | 1483.5 km2 |
+| AOI after orbit restriction | **996.5 km2**, 67% of the county |
+| CSB fields in the county | 6027 |
+| Fields corn or soybean in >= 6 of 8 seasons | 5033 |
+| Of those, inside the AOI (**selected**) | **3445** |
+| Mean selected field size | 52.9 acres |
+
+The AOI is the county intersected with the region where relative orbit 112 was present on at least 90% of that orbit's acquisitions across 2018 to 2025. At 67% it is slightly larger than the 64% to 65% two-orbit figure in finding 2, because the 90% threshold admits pixels near the swath edge that a strict all-acquisitions rule would drop.
+
+Field selection is by the CSB `CDL2018` to `CDL2025` properties. **Correction to earlier documentation:** the community catalogue page lists these as `CROP18` to `CROP25`; confirmed against the asset on 2026-09-16, they are `CDL<year>`. The field identifier is `CSBID`, a 15-digit string, so a dense integer index is painted into the raster and the mapping exported alongside. The asset is served in EPSG:4326, not EPSG:5070 as SPEC Section 5 assumed for the shapefile distribution, so reprojection happens in the export.
+
+### End-to-end check on one season before queuing the rest
+
+2020, one zone inside a selected field, NDVI after masking and aggregation to 30m:
+
+| date | NDVI | valid sub-pixels |
+|---|---|---|
+| 2020-07-03 | 0.611 | 9 of 9 |
+| 2020-07-10 | 0.705 | 9 of 9 |
+| 2020-07-28 | 0.871 | 9 of 9 |
+| 2020-07-30 | 0.852 | 9 of 9 |
+
+Four of the twelve July acquisition dates survived masking at this zone, consistent with the roughly 41% clear rate implied by the Step 0 counts. The values trace canopy closure through July rather than sitting at implausible extremes, and no masked date produced a zero.
+
+Cube shape for 2020: 61 acquisition dates, 183 value bands (`<index>_<YYYYMMDD>`, three indices) and 61 count bands (`count_<YYYYMMDD>`, one per date because the mask is shared across indices).
+
 ## Step 1 onward
 
-`[TBD]`. Not started.
+`[TBD]`. Exports for 2018, 2019, and 2021 through 2025 not yet queued. Zone size comparison at 10m against 30m not yet measured.

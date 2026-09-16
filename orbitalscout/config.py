@@ -47,3 +47,47 @@ MIN_MEDIAN_CLEAR_OBS = 6
 # surface is spatially smooth, so this is far more than enough for a median.
 SAMPLE_PIXELS = 10_000
 SAMPLE_SEED = 42
+
+# Earth Engine project, overridable per machine.
+EE_PROJECT_ENV = "ORBITALSCOUT_EE_PROJECT"
+
+# Batch exports land here in the user's Drive. Drive over a GCS bucket because
+# this export runs once; reproducibility lives in the code, not in where the
+# bytes were staged, and GCS would mean enabling billing for nothing.
+DRIVE_FOLDER = "orbitalscout"
+
+# The AOI is materialised once and every later step reads it, so that the
+# definition cannot drift between steps.
+AOI_ASSET = "projects/{project}/assets/orbitalscout_aoi"
+
+# A pixel is in the AOI if the restricting orbit covered it in at least this
+# fraction of that orbit's acquisitions. Absorbs small footprint variation.
+ORBIT_COVERAGE_MIN = 0.90
+
+# CSB carries one CDL code per field per year. Confirmed against the asset on
+# 2026-09-16: the properties are CDL2018..CDL2025, not the CROP18..CROP25 that
+# the community catalogue page lists.
+CSB_ASSET = "projects/nass-csb/assets/CSB1825_rev23/CSBIA1825"
+CSB_FIELD_ID = "CSBID"
+CSB_CROP_PROPERTY = "CDL{year}"
+CSB_STATE_FIPS = "19"
+CSB_COUNTY_FIPS = "169"
+
+# A field is selected if it grew a registry crop in at least this many seasons.
+MIN_CROP_YEARS = 6
+
+# Inward buffer, one zone width, so no zone straddles a field edge.
+FIELD_BUFFER_M = -30
+
+# Sentinel-2 bands behind each index. Red edge (B5) and SWIR (B11) are 20m
+# native, which is the other reason zones are 30m and not 10m.
+INDICES = {
+    "ndvi": ("B8", "B4"),
+    "ndre": ("B8", "B5"),
+    "ndwi": ("B8", "B11"),  # Gao form: vegetation water content
+}
+
+# A 30m zone needs this many of its nine 10m sub-pixels valid on a date.
+MIN_SUBPIXELS = 5
+ZONE_SIZE_M = 30
+NATIVE_SIZE_M = 10

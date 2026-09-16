@@ -1,36 +1,73 @@
-# 🛰️ OrbitalScout: Satellite Scouting Priority for Row-Crop Fields
+# 🛰️ OrbitalScout
 
-**Rank sub-field zones by how urgently they warrant a physical visit, measured against each zone's own multi-year history.**
+### Telling a farmer which parts of a field to walk today, and measuring whether the answer is any good.
 
-It answers **where to scout**, never **what is wrong**.
-
-> **Status: Step 0 complete, Step 1 in progress.**
-> The specification and its evaluation protocol were committed before any data was touched, with
-> timestamps to prove it. Step 0 has run; its measured output is in [`RESULTS.md`](RESULTS.md).
-> **No evaluation result exists yet.** Every unmeasured figure in this repository is marked `[TBD]`.
-> There are no estimated, illustrative, or placeholder numbers anywhere in it.
+> **Status: Step 0 done, Step 1 in progress.**
+> The plan and the scoring rules were written and committed *before* any data was downloaded, with
+> timestamps to prove it. **No accuracy result exists yet.** Every unmeasured figure is marked `[TBD]`.
+> There are no estimated or placeholder numbers anywhere in this repository.
 
 ---
 
-## 📋 Overview
+## 📋 What this is, in plain English
 
-A farmer with a 100 acre field cannot walk all of it. Problems appear in patches, not uniformly, and the useful question is never "is my field healthy" but **"where do I spend the two hours I actually have today."**
+Picture a farmer with a 100 acre field. Somewhere in it, a patch of crop is struggling. They have two hours before dark. **Which part do they drive out to?**
 
-Commercial tools answer this by colouring a map by vegetation index. That is a visualisation, not a recommendation, and it comes with no statement about whether the highlighted areas are the right ones to visit.
+Satellites photograph every field on Earth every few days, for free. So you would think you could just look at the picture and find the sick patch. You can't, and the reason is the whole point of this project:
 
-OrbitalScout produces a **ranked list of 30m zones under a scouting budget**, built from free Sentinel-2 imagery and eight growing seasons of history, and then measures how good that ranking actually is against a commercial baseline and two null models.
+> **The worst-looking parts of a field are almost always the parts that look bad every single year.**
+>
+> The sandy corner. The wet dip that never drains. The strip the tractor compacted years ago. A satellite map faithfully highlights all of them, every time. The farmer has known about them for twenty years. It is a map of the dirt, not a map of today's problem.
 
-The detection method is not the point. NDVI zoning is commercially shipped; within-parcel anomaly detection is published. **What a bounded literature search did not find is anyone reporting whether such rankings are correct**: no precision@k, no false-positive rate, no comparison against a null. The contribution is the evaluation.
+**So this project asks a different question.** Instead of "which patch looks worst?" it asks **"which patch is doing worse than it normally does at this point in the summer?"** A patch that is usually fine and is suddenly lagging is worth driving out to see. A patch that is always bad is not news.
+
+That comparison needs history, so the system looks at eight years of satellite images, learns what normal looks like for every 30 metre square of every field, and then ranks the squares by how far below their own normal they are today. The output is a to-do list: *check these spots first.*
+
+### The part that is actually new
+
+Tools that draw these maps already exist and are sold commercially. **What appears to be missing is anyone checking whether the maps are right.**
+
+Reading through the published work and the commercial documentation, you find plenty of systems that highlight patches, and essentially no one reporting how often the highlighted patch actually had a problem. No hit rate. No false alarm rate. No comparison against an obvious dumb guess.
+
+So the real deliverable here is not the map. **It is the scoring system that tells you whether the map is worth trusting**, including an honest comparison against the dumbest possible strategy: *"just go back to wherever was bad last time."* That turns out to be surprisingly hard to beat, and this project has committed in writing, in advance, to publishing the result even if it loses.
+
+### Why a hiring manager might care
+
+| What it demonstrates | Where to look |
+|---|---|
+| Designing an evaluation *before* seeing data, so results cannot be quietly tuned | [`SPEC.md`](SPEC.md) Section 10, committed before any download |
+| Catching a subtle bug that would have faked a good result | [`docs/reviews/2026-09-14-council-label-review.md`](docs/reviews/) |
+| Changing course when a measurement contradicted the plan, and writing down why | [`RESULTS.md`](RESULTS.md) findings 1 to 3 |
+| Test-first discipline on code that fails silently rather than loudly | [`tests/test_melt.py`](tests/test_melt.py) |
+| Data engineering at scale on a laptop, with the arithmetic done first | ~180 million rows, ~3 GB, no cloud bill |
+| Knowing what *not* to build | No Docker, no orchestrator, no API, no ML model so far |
 
 ---
 
-## 🎯 The Core Idea
+## 🔍 A Worked Example
 
-Ranking zones by **absolute** vegetation index reproduces the permanent soil map: the sandy corner, the compacted headland, the low wet spot. Those zones score badly every year for reasons unrelated to any emerging problem, and the farmer learned where they are twenty years ago. A tool that flags them is reporting the soil map back.
+One 30 metre square inside a real Iowa cornfield, July 2020, measured by this pipeline:
 
-The actionable signal is **deviation from a zone's own history**. A zone that is normally fine and is suddenly behind is worth driving out to see. A zone that is always behind is not news.
+| date | greenness (NDVI) | what it means |
+|---|---|---|
+| 3 July | 0.611 | corn filling in |
+| 10 July | 0.705 | still growing |
+| 28 July | 0.871 | full canopy |
+| 30 July | 0.852 | at peak |
 
-One refinement makes this work with only eight seasons of data. Rather than compare each zone to its own absolute history, compare it to **how it usually stands relative to the rest of its own field.** Crop type, weather, planting date and management are all properties of the *field-year*, not the zone, because Corn Belt fields rotate as whole units. Measuring within the field cancels all of them at once.
+Eight other July dates are missing from that list because clouds covered the field. **Those dates are simply absent, not recorded as zero.** That distinction sounds pedantic and is the single most dangerous bug in the project: a cloudy day stored as "greenness 0" would look exactly like a dead crop, nothing would crash, and every number downstream would be quietly wrong. There is a test guarding it, and that test was checked by deliberately reintroducing the bug to confirm it catches it.
+
+To find the struggling patches, the system compares this square's curve to the same square's curve in previous years, and to the rest of its own field on the same day.
+
+---
+
+## 🎯 The Core Idea, Stated Precisely
+
+Ranking zones by **absolute** vegetation index reproduces the permanent soil map. Those zones score badly every year for reasons unrelated to any emerging problem.
+
+The actionable signal is **deviation from a zone's own history**.
+
+One refinement makes this work with only eight seasons of data. Rather than compare each zone to its own absolute history, compare it to **how it usually stands relative to the rest of its own field.** Crop type, weather, planting date and management are all properties of the *field-year*, not the zone, because Corn Belt fields rotate as whole units. Measuring within the field cancels all of them at once. (This is the within transformation from panel econometrics, arrived at by asking what level each variable actually varies at.)
 
 ---
 
@@ -54,6 +91,8 @@ One refinement makes this work with only eight seasons of data. Rather than comp
                                                               v
                                               static MapLibre demo (no backend)
 ```
+
+**In words:** Google's satellite platform does the heavy lifting: throw away cloudy pixels, compute greenness, average up to 30 metre squares, and hand back one compact file per season. A laptop then reshapes those files into a database table, works out what normal looks like per square, ranks the squares, and scores the ranking.
 
 **Masking, CRS reprojection and zonal aggregation happen exactly once, inside a single Earth Engine expression.** Every signal reads one clean feature table and none reimplements any of them, because two competing definitions of "clear observation" would make the persistence signal meaningless.
 
