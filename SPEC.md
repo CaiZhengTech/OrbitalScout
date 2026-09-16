@@ -50,7 +50,7 @@ All sources are free. Registration requirements are flagged because they gate th
 | Sentinel-2 L2A | In-season optical time series | Earth Engine `COPERNICUS/S2_SR_HARMONIZED`, joined to Cloud Score+ by `system:index`, masked and zonally reduced in one expression | Earth Engine |
 | Sentinel-2 L2A (cross-check) | Independent check of exported values on a sample of zones | Planetary Computer `sentinel-2-l2a` via `pystac-client` | No |
 | Cloud Score+ | Cloud and shadow masking | Earth Engine `GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED` | Earth Engine |
-| USDA Crop Sequence Boundaries | Field polygons **and** per-field-year crop code (`CROP18` to `CROP25`) | Earth Engine `projects/nass-csb/assets/CSB1825_rev23/CSBIA1825`, public domain, 2018 to 2025 | Earth Engine |
+| USDA Crop Sequence Boundaries | Field polygons **and** per-field-year crop code (`CDL2018` to `CDL2025`) | Earth Engine `projects/nass-csb/assets/CSB1825_rev23/CSBIA1825`, public domain, 2018 to 2025 | Earth Engine |
 | USDA Cropland Data Layer | Not used for zone crop labels; CSB supplies those at field-year level. Retained only to quantify the G-4 prior-year mismatch rate | Earth Engine `USDA/NASS/CDL` | Earth Engine |
 | AlphaEarth Satellite Embedding | Multi-year zone prior. Rung 3 only; not ingested before rung 3 is reached | Earth Engine `GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL` | Earth Engine |
 | USDA Soil Data Access | Drainage class, slope | POST to `https://SDMDataAccess.sc.egov.usda.gov/Tabular/post.rest` | No |
@@ -260,7 +260,7 @@ Cloud masking, CRS reprojection, and zonal aggregation are applied **once during
 
 ## 12. Storage
 
-DuckDB over Parquet, local. At the 30m zone size of Section 6 the full modelling dataset is roughly 180 million zone-date rows, on the order of 3 GB, and fits on a laptop. This claim is conditional on 30m and is not true at 10m, where the same AOI would be about 1.6 billion rows and roughly 25 GB. The two were inconsistent in earlier drafts.
+DuckDB over Parquet, local. At the 30m zone size of Section 6 the full modelling dataset is on the order of 10^8 zone-date rows and a few GB, and fits on a laptop. The exact figure is recorded in `RESULTS.md` once Step 1 completes; the pre-measurement estimate of 180 million assumed unbuffered fields, and the inward buffer of Section 6 removes roughly a quarter of each field's area. This claim is conditional on 30m and is not true at 10m, where the same AOI would be about 1.6 billion rows and roughly 25 GB. The two were inconsistent in earlier drafts.
 
 Justification for interview: the joins across five years of zone-level data are cleaner in SQL, and DuckDB reads Parquet directly with no server. Not chosen for scale, chosen for join ergonomics at small scale.
 
