@@ -4,10 +4,11 @@ Rank sub-field zones by how urgently they warrant a physical visit, measured aga
 
 It answers **where to scout**, never **what is wrong**.
 
-> **Status: pre-build.**
+> **Status: Step 0 complete, Step 1 not started.**
 > The specification (`SPEC.md`) and the evaluation protocol it contains were written before any
-> data was touched, and are committed here with timestamps to prove it. No results exist yet.
-> Every metric in this document is marked `[TBD]` and will be replaced only by measured output.
+> data was touched, and are committed here with timestamps to prove it. Step 0 has since run and
+> its measured output is in `RESULTS.md`. No evaluation result exists yet.
+> Every unmeasured metric is marked `[TBD]` and will be replaced only by measured output.
 > There are no estimated, illustrative, or placeholder numbers anywhere in this repository.
 
 ---
@@ -47,7 +48,7 @@ That framing is deliberately smaller than "I built a crop monitoring platform," 
 
 ## Results
 
-No results yet. This table is the output of the build, not a target.
+Step 0 output is in [`RESULTS.md`](RESULTS.md). No evaluation result exists yet; the table below is the output of the build, not a target.
 
 | Metric, primary label | NDVI k-means (B2) | Level persistence (B1a) | Anomaly persistence (B1b) | OrbitalScout |
 |---|---|---|---|---|
@@ -63,7 +64,7 @@ Base rate is 10% by construction under the primary label, so lift over random is
 
 ### A negative result is pre-committed as valid
 
-The headline null is anomaly persistence: rank zones by last year's residual, predicting that whatever was unusually bad last year is unusually bad again. Because problems recur in the same places, it is genuinely hard to beat. There is a real chance OrbitalScout does not beat it.
+The headline null is anomaly persistence: rank zones by their residual the last time this crop was grown, predicting that whatever was unusually bad then is unusually bad again. Because problems recur in the same places, it is genuinely hard to beat. There is a real chance OrbitalScout does not beat it.
 
 If that happens it is reported as the headline finding, in these words: *prior-year anomaly explains this year's anomaly, and the anomaly-persistence null was not beaten at the scouting budget.* If B1a additionally wins on the secondary absolute label, that is reported as a second finding: permanent soil structure dominates the absolute signal. The protocol will not be retuned, neither null will be dropped, and the project will not be reframed to avoid saying so.
 
@@ -75,8 +76,8 @@ This paragraph exists in the repository before the results do, specifically so t
 Sentinel-2 L2A  --+
 Cloud Score+    --|
 USDA CSB        --+-->  ingest  -->  zone feature  -->  baseline  -->  signals  -->  rank
-USDA CDL        --|    (mask, reproject,   table         (GDD-aligned   (S1..S6)      |
-USDA SDA soil   --|     aggregate: once)  (DuckDB over    per zone)                   |
+USDA CDL        --|    (mask, reproject,   table        (GDD-aligned,   (S1..S6)      |
+USDA SDA soil   --|     aggregate: once)  (DuckDB over   within-field)                |
 Open-Meteo GDD  --+                        Parquet)                                   |
                                                                                       v
                                                                     evaluate  <-------+
@@ -148,8 +149,8 @@ Current gate status: `[TBD]`, none run yet.
 
 Strictly sequential. Each step runs end to end before the next begins.
 
-- [ ] **Step 0.** Clear observation count and zone size. One county, one season, Cloud Score+ masking, count usable observations per zone (gate G-0). Measure year-over-year variance of stable zones at 10m and 30m on a field sample and pick the zone size from it.
-- [ ] **Step 1.** Ingestion. CSB boundaries, zone construction, CDL labels, one Earth Engine expression that masks and zonally reduces every season, export, load into DuckDB.
+- [x] **Step 0.** Clear observation count. **G-0 passed**: median 25 clear observations per season against a threshold of 6. Three findings changed the design; see `RESULTS.md`.
+- [ ] **Step 1.** Ingestion. CSB boundaries, zone construction, CDL labels, one Earth Engine expression that masks and zonally reduces every season, export at both 10m and 30m, load into DuckDB. Zone size is decided here, from measurement.
 - [ ] **Step 2.** Baseline construction. GDD accumulation, phenology-aligned per-zone history.
 - [ ] **Step 3.** Signal S1 alone. Sort by it. No model.
 - [ ] **Step 4.** Evaluation harness. Persistence null, NDVI k-means baseline, precision@k, lift, blocked splits. **The project is complete and shippable at this point.**
@@ -162,12 +163,12 @@ Everything after Step 4 is an ablation study. Steps 0 through 4 done well beats 
 
 | Dimension | V1 |
 |---|---|
-| Geography | One county, US Corn Belt (Iowa or Illinois) `[TBD]` |
+| Geography | Story County, Iowa, restricted to the region under both Sentinel-2 relative orbits (64% of the county) |
 | Crops | Corn and soybean |
-| Years | All Sentinel-2 L2A seasons, 2017 onward; last three held out in rotation |
+| Years | 2018 to 2025; last three held out in rotation. 2017 excluded as single-satellite |
 | Season window | Roughly May through September, bounded by phenology not calendar |
-| Zone size | Configurable; 10m or 30m, decided by measurement at Step 0 `[TBD]` |
-| Baseline | Stratified by crop; roughly 4 seasons per zone-crop under a corn-soy rotation |
+| Zone size | Configurable; 10m or 30m, decided by measurement at Step 1 `[TBD]` |
+| Baseline | Within-field relative, pooled across crops; 5 to 7 prior seasons per held-out year |
 | Field definition | USDA Crop Sequence Boundaries polygons |
 
 Crop-specific parameters live in a registry table keyed by CDL code. Adding a crop means adding a row. No crop name appears in a conditional anywhere in the codebase.

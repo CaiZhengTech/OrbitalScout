@@ -44,7 +44,7 @@ Consistently across all nine years, 64% to 65% of the AOI falls under both orbit
 
 The boundary is drawn by orbit geometry and has no agronomic meaning. Zones on the thin side receive roughly half the observations, which gives them noisier baselines, shorter achievable persistence runs for S5, and less chance of catching a short-lived anomaly. Pooling the two regions would let a satellite artifact appear as a spatial pattern in crop stress.
 
-Not yet decided: whether to restrict the AOI to the doubly covered portion or to carry orbit coverage as a per-zone covariate and report ranking quality separately for each region.
+**Decided 2026-09-14: the AOI is restricted to the doubly covered region**, that is Story County intersected with the footprint of relative orbit 112. Carrying coverage as a per-zone covariate was rejected because the thin region is a contiguous stripe rather than a random sample, so the confound would be spatial and would attach to every downstream comparison. About a third of the fields are dropped. The excluded stripe is retained as an optional robustness experiment: does ranking quality degrade at half the observation density? See `DESIGN.md` D18.
 
 ### Finding 3: effective per-crop history is two to four seasons, not eight
 
@@ -57,7 +57,7 @@ Measured over 2018 to 2025 on 4,000 sampled pixels at 30m, of which 2,892 were c
 
 Crop changes across 82% of consecutive year pairs, and 49.3% of pixels alternate in every single year. The rotation is strong but not universal.
 
-Because the baseline may use only years strictly prior to the target year, and because SPEC Section 8 stratifies the baseline by crop, the depth actually available to a held-out year is lower than the totals above:
+Because the baseline may use only years strictly prior to the target year, and because SPEC Section 8 stratified the baseline by crop at the time this was measured, the depth actually available to a held-out year was lower than the totals above:
 
 | test year | prior seasons | approximate seasons per crop |
 |---|---|---|
@@ -67,13 +67,15 @@ Because the baseline may use only years strictly prior to the target year, and b
 
 This triggers open item 12 of `docs/reviews/2026-09-14-council-label-review.md`, which recorded in advance that a measured per-zone-crop count materially below four would put the per-zone baseline itself in question, not merely the per-zone standard deviation already rejected.
 
-Unresolved and consequential. Recorded here rather than worked around.
+**Decided 2026-09-14: crop stratification is dropped in favour of a within-field relative baseline.** Crop is a property of the field-year, not of the zone, because Corn Belt fields rotate as whole units. Measuring each zone against its own field median in the same year cancels crop, weather, planting date and management together, so the baseline can pool every prior year and usable history returns to five to seven seasons. Formulas in `SPEC.md` Section 8; reasoning in `DESIGN.md` D17 and `docs/reviews/2026-09-14-baseline-depth-decision.md`.
+
+A zone-by-crop interaction, where a zone's relative standing genuinely differs between corn and soybean years, is not cancelled by this. Soybean iron deficiency chlorosis on the calcareous soils of the Des Moines Lobe is a plausible local mechanism. It is handled as a candidate refinement admitted by measured lift, not by assumption, and the across-zone corn-versus-soybean correlation is reported from Step 2 as a diagnostic: `[TBD]`.
 
 ---
 
 ## Step 0, zone size
 
-`[TBD]`. Year-over-year variance of stable zones at 10m against 30m has not been measured yet. It is deferred until the baseline question raised by finding 3 is settled, because the two interact: a coarser zone averages down per-observation noise and would change the variance comparison.
+`[TBD]`. Moved into Step 1. The Earth Engine expression that exports the zone table can emit 10m and 30m at negligible extra cost, and the comparison should be made on the within-field relative quantity that finding 3 settled. Prior expectation, recorded so it can be checked against the result: 30m will show lower year-over-year variance for stable zones, because it averages down Sentinel-2 co-registration jitter of roughly one pixel between passes.
 
 ## Step 1 onward
 

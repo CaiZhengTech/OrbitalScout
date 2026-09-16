@@ -9,8 +9,17 @@ is defined twice and no value is buried in a script.
 # SPEC Section 10 wants as a qualitative case study.
 COUNTY_FIPS = "19169"
 
-# Sentinel-2 L2A covers the continental US from 2017.
-YEARS = tuple(range(2017, 2026))
+# 2017 is excluded: Sentinel-2B was not operational for most of that season,
+# so it yielded 26 acquisition dates against roughly 60 in every later year
+# and its p10 clear count of 5 is the only value below the G-0 threshold.
+# RESULTS.md finding 1.
+YEARS = tuple(range(2018, 2026))
+
+# Two relative orbits cover the county and orbit 112 clips it, so the region
+# under both gets roughly twice the clear observations of the rest. The AOI is
+# restricted to that region so an orbit boundary cannot masquerade as a spatial
+# pattern in crop stress. RESULTS.md finding 2, DESIGN.md D18.
+RESTRICTING_ORBIT = 112
 
 # Loose calendar bounds on the growing season. Phenology bounds it properly
 # at Step 2; here it only needs to exclude bare soil and winter.
