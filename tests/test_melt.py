@@ -22,13 +22,14 @@ ORIGIN_X = 150_000.0
 ORIGIN_Y = 2_100_000.0
 
 
-def write_raster(path, array, crs="EPSG:5070", descriptions=None, dtype="int16"):
+def write_raster(path, array, crs="EPSG:5070", descriptions=None, dtype="int16",
+                 nodata=NODATA):
     """Write a small GeoTIFF. array is (bands, rows, cols)."""
     bands, rows, cols = array.shape
     transform = Affine(GRID, 0.0, ORIGIN_X, 0.0, -GRID, ORIGIN_Y)
     with rasterio.open(
         path, "w", driver="GTiff", height=rows, width=cols, count=bands,
-        dtype=dtype, crs=crs, transform=transform, nodata=NODATA,
+        dtype=dtype, crs=crs, transform=transform, nodata=nodata,
     ) as dst:
         dst.write(array)
         if descriptions:
@@ -160,4 +161,20 @@ def test_unparseable_band_name_raises_rather_than_being_skipped(cube):
     write_raster(cube["value"], values, descriptions=bad)
 
     with pytest.raises(ValueError, match="mystery_band"):
+        melt_cube(cube)
+
+
+def test_raster_without_a_nodata_value_raises(cube):
+    """A GeoTIFF with no nodata tag cannot distinguish masked from zero.
+
+    Earth Engine writes masked pixels as 0 and omits the nodata tag unless it
+    is asked for one. Reading such a file with masked=True masks nothing, so
+    every cloudy pixel silently becomes a valid observation of zero greenness.
+    This is the real-export shape of the bug the whole module guards against,
+    and the synthetic fixtures did not reproduce it, so it is asserted here.
+    """
+    values = np.full((6, 2, 2), int(0.25 * SCALE), dtype="int16")
+    write_raster(cube["value"], values, descriptions=cube["bands"], nodata=None)
+
+    with pytest.raises(ValueError, match="nodata"):
         melt_cube(cube)
