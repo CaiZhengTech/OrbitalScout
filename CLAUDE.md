@@ -69,7 +69,7 @@ Strictly sequential. Do not start a step before the previous one runs end to end
 
 **Step 0 — Clear observation count. DONE 2026-09-14.** G-0 passed: median 25 clear observations per season against a threshold of 6, across 2017 to 2025. Three findings changed the design: 2017 excluded as single-satellite, the AOI restricted to the region under both relative orbits, and crop stratification dropped in favour of a within-field relative baseline. See `RESULTS.md` and `docs/reviews/2026-09-14-baseline-depth-decision.md`. Zone size moved into Step 1.
 
-**Step 1 — Ingestion.** CSB boundaries, zone construction, CDL labels, one Earth Engine expression that masks and zonally reduces every season into a zone-date-index table, export, load into DuckDB. Export the zone table at **both 10m and 30m**: the same expression emits both at negligible extra cost, and the zone-size comparison is then made on the within-field relative quantity rather than guessed beforehand. This is the longest step. Expect it to take most of the first week.
+**Step 1 - Ingestion.** CSB field selection and inward buffer, zone construction, per-field-year crop from the CSB `CROPyy` columns (not the CDL raster), one Earth Engine expression that masks and reduces every season to a 30m cube, export, melt to long rows locally, load into DuckDB. Export the full AOI at **30m only**. 10m over the full AOI is roughly 1.6 billion rows and breaks the storage claim; the 10m against 30m comparison runs on a seeded sample of about 50 fields instead. This is the longest step. Expect it to take most of the first week.
 
 **Step 2 — Baseline construction.** GDD accumulation, phenology-aligned per-zone historical baseline.
 

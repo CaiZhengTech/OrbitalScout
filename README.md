@@ -150,7 +150,7 @@ Current gate status: `[TBD]`, none run yet.
 Strictly sequential. Each step runs end to end before the next begins.
 
 - [x] **Step 0.** Clear observation count. **G-0 passed**: median 25 clear observations per season against a threshold of 6. Three findings changed the design; see `RESULTS.md`.
-- [ ] **Step 1.** Ingestion. CSB boundaries, zone construction, CDL labels, one Earth Engine expression that masks and zonally reduces every season, export at both 10m and 30m, load into DuckDB. Zone size is decided here, from measurement.
+- [ ] **Step 1.** Ingestion. CSB field selection and buffer, zone construction, per-field-year crop from CSB, one Earth Engine expression that masks and reduces every season to a 30m cube, melt to long rows, load into DuckDB.
 - [ ] **Step 2.** Baseline construction. GDD accumulation, phenology-aligned per-zone history.
 - [ ] **Step 3.** Signal S1 alone. Sort by it. No model.
 - [ ] **Step 4.** Evaluation harness. Persistence null, NDVI k-means baseline, precision@k, lift, blocked splits. **The project is complete and shippable at this point.**
@@ -167,9 +167,9 @@ Everything after Step 4 is an ablation study. Steps 0 through 4 done well beats 
 | Crops | Corn and soybean |
 | Years | 2018 to 2025; last three held out in rotation. 2017 excluded as single-satellite |
 | Season window | Roughly May through September, bounded by phenology not calendar |
-| Zone size | Configurable; 10m or 30m, decided by measurement at Step 1 `[TBD]` |
+| Zone size | 30m for the full AOI; 10m on a 50-field sample for the comparison `[TBD]` |
 | Baseline | Within-field relative, pooled across crops; 5 to 7 prior seasons per held-out year |
-| Field definition | USDA Crop Sequence Boundaries polygons |
+| Field definition | USDA Crop Sequence Boundaries polygons, via the Earth Engine asset |
 
 Crop-specific parameters live in a registry table keyed by CDL code. Adding a crop means adding a row. No crop name appears in a conditional anywhere in the codebase.
 

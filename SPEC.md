@@ -38,7 +38,7 @@ The system answers **where to look**, not **what is wrong**. Disease and pest id
 | Crops | Corn and soybean |
 | Years | 2018 to 2025; the last three held out in rotation. 2017 excluded, see `RESULTS.md` finding 1 |
 | Season window | Roughly May through September, bounded by phenology not calendar |
-| Zone size | 10m, matching Sentinel-2 native resolution |
+| Zone size | 30m for the full AOI; 10m on a 50-field sample for the comparison. See Section 6 |
 | Field definition | USDA Crop Sequence Boundaries polygons |
 
 ## 4. Data sources
@@ -50,8 +50,8 @@ All sources are free. Registration requirements are flagged because they gate th
 | Sentinel-2 L2A | In-season optical time series | Earth Engine `COPERNICUS/S2_SR_HARMONIZED`, joined to Cloud Score+ by `system:index`, masked and zonally reduced in one expression | Earth Engine |
 | Sentinel-2 L2A (cross-check) | Independent check of exported values on a sample of zones | Planetary Computer `sentinel-2-l2a` via `pystac-client` | No |
 | Cloud Score+ | Cloud and shadow masking | Earth Engine `GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED` | Earth Engine |
-| USDA Crop Sequence Boundaries | Field polygons | GeoParquet mirror, Source Cooperative `fiboa/us-usda-cropland` | No |
-| USDA Cropland Data Layer | Crop type labels | CropScape REST, or Earth Engine `USDA/NASS/CDL` | No |
+| USDA Crop Sequence Boundaries | Field polygons **and** per-field-year crop code (`CROP18` to `CROP25`) | Earth Engine `projects/nass-csb/assets/CSB1825_rev23/CSBIA1825`, public domain, 2018 to 2025 | Earth Engine |
+| USDA Cropland Data Layer | Not used for zone crop labels; CSB supplies those at field-year level. Retained only to quantify the G-4 prior-year mismatch rate | Earth Engine `USDA/NASS/CDL` | Earth Engine |
 | AlphaEarth Satellite Embedding | Multi-year zone prior. Rung 3 only; not ingested before rung 3 is reached | Earth Engine `GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL` | Earth Engine |
 | USDA Soil Data Access | Drainage class, slope | POST to `https://SDMDataAccess.sc.egov.usda.gov/Tabular/post.rest` | No |
 | Open-Meteo Historical | Daily temps for GDD | `https://archive-api.open-meteo.com/v1/archive` | No |
@@ -73,13 +73,15 @@ Categorical rasters (CDL) are resampled with nearest neighbour only. Continuous 
 
 ## 6. Zone definition
 
-A zone is a square grid cell of configurable side length, aligned to the Sentinel-2 10m grid, whose centroid falls inside a CSB field polygon after an inward buffer of one pixel to exclude boundary-contaminated pixels.
+A zone is a **30m** square grid cell, aligned to the Sentinel-2 10m grid, whose centroid falls inside a CSB field polygon after an inward buffer of one zone width to exclude boundary-contaminated cells.
 
-Zone size is a parameter in `config.py`, not a constant. Step 0 measures the year-over-year variance of stable zones at 10m and 30m on a sample of fields across all seasons; the choice is made from that measurement and recorded in `RESULTS.md`. The concern at 10m is Sentinel-2 co-registration jitter of roughly one pixel between passes, which makes a single pixel's multi-year series partly its neighbour's.
+30m is the full-AOI grid for two reasons beyond noise. Red edge (B5) and SWIR (B11) are 20m native on Sentinel-2, so a 10m zone for NDRE or NDWI is an interpolation; 30m is the first grid on which all three indices sit at or above native resolution. And 10m over the full AOI is roughly 8 million zones, which at 25 observations per season across 8 seasons and 3 indices is about 1.6 billion rows, inconsistent with the storage claim in Section 12.
 
-Zonal aggregation is a mean over the pixels within the zone, computed in Earth Engine in the same expression that applies the cloud mask, so masked pixels are excluded by construction. Nothing is aggregated locally.
+The 10m against 30m comparison is still made, on a seeded random sample of about 50 CSB fields inside the AOI exported at both resolutions, and recorded in `RESULTS.md`. The concern at 10m is Sentinel-2 co-registration jitter of roughly one pixel between passes, which makes a single pixel's multi-year series partly its neighbour's.
 
-Zones with fewer than a configured minimum of valid pixels across the season are dropped, not imputed.
+Indices are computed per 10m pixel **before** aggregation, because a mean of ratios is not a ratio of means. Aggregation to 30m is a mean over the nine 10m sub-pixels, computed in Earth Engine in the same expression that applies the cloud mask, so masked pixels are excluded by construction. Nothing is aggregated locally.
+
+A zone-date with fewer than a configured minimum of valid sub-pixels (default 5 of 9) is masked for that date. A zone with fewer than a configured minimum of valid dates across the season is dropped, not imputed.
 
 ## 7. Signals
 
@@ -225,10 +227,11 @@ orbitalscout/
   config.py           # AOI, years, CRS, paths, thresholds. One place.
   crops.py            # crop registry table loader
   ingest/
-    gee.py            # Sentinel-2 + Cloud Score+ + zonal reduce, one expression, table export
+    gee.py            # S2 + Cloud Score+ + index + reduce to 30m, one expression, cube export
+    melt.py           # cube image to long rows. A reshape only: no mask, no reproject, no threshold
     masking.py        # the single clear-observation threshold, imported by gee.py
-    boundaries.py     # CSB field polygons
-    cdl.py            # crop labels
+    boundaries.py     # CSB field selection, inward buffer, field_id painting
+    cdl.py            # G-4 prior-year mismatch rate only. Not a source of zone crop labels
     soil.py           # SDA queries
     weather.py        # Open-Meteo, GDD accumulation
     embeddings.py     # AlphaEarth. Rung 3 only. Not written before then.
@@ -244,6 +247,7 @@ orbitalscout/
 tests/
   test_splits.py      # leakage tests. The most important tests in the repo.
   test_crosscheck.py  # GEE export vs independent PC pull on a zone sample. Manual, network, not CI.
+  test_melt.py        # masked sub-pixel becomes an absent row, never a zero. CRS mismatch raises.
   test_baseline.py    # baseline computation
 demo/
   index.html          # MapLibre, one file
@@ -256,7 +260,7 @@ Cloud masking, CRS reprojection, and zonal aggregation are applied **once during
 
 ## 12. Storage
 
-DuckDB over Parquet, local. The full modelling dataset is single-digit GB and fits on a laptop.
+DuckDB over Parquet, local. At the 30m zone size of Section 6 the full modelling dataset is roughly 180 million zone-date rows, on the order of 3 GB, and fits on a laptop. This claim is conditional on 30m and is not true at 10m, where the same AOI would be about 1.6 billion rows and roughly 25 GB. The two were inconsistent in earlier drafts.
 
 Justification for interview: the joins across five years of zone-level data are cleaner in SQL, and DuckDB reads Parquet directly with no server. Not chosen for scale, chosen for join ergonomics at small scale.
 
