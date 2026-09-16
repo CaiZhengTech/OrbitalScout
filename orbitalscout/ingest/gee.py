@@ -100,7 +100,8 @@ def field_id_image(fields):
         ).map(lambda pair: ee.Feature(ee.List(pair).get(0))
               .set("field_idx", ee.List(pair).get(1)))
     )
-    return with_index.reduceToImage(["field_idx"], ee.Reducer.first()).rename("field_id")
+    painted = with_index.reduceToImage(["field_idx"], ee.Reducer.first())
+    return painted.unmask(config.NODATA).int32().rename("field_id")
 
 
 def _masked_indices(image):
@@ -178,7 +179,12 @@ def season_cubes(year, aoi):
             .rename(f"count_{stamp}")
         )
 
-    return ee.Image.cat(value_bands), ee.Image.cat(count_bands), dates
+    # Masked pixels are written as the sentinel and declared in the nodata tag
+    # by start_export. Without that, Earth Engine writes 0 and leaves the tag
+    # unset, and every cloudy pixel reads back as a valid zero.
+    values = ee.Image.cat(value_bands).unmask(config.NODATA).int16()
+    counts = ee.Image.cat(count_bands).unmask(config.NODATA).int16()
+    return values, counts, dates
 
 
 def start_export(image, description, aoi):
@@ -193,6 +199,7 @@ def start_export(image, description, aoi):
         crs="EPSG:5070",
         maxPixels=int(1e10),
         fileFormat="GeoTIFF",
+        formatOptions={"noData": config.NODATA},
     )
     task.start()
     return task

@@ -40,7 +40,7 @@ def xy_from_zone_id(zone_id, grid=ZONE_GRID_M):
 
 
 def _open_checked(path):
-    """Open a raster, refusing anything not already in the target CRS."""
+    """Open a raster, refusing a wrong CRS or a missing nodata value."""
     src = rasterio.open(path)
     if src.crs is None or src.crs.to_string() != TARGET_CRS:
         actual = src.crs.to_string() if src.crs else "none"
@@ -48,6 +48,14 @@ def _open_checked(path):
         raise ValueError(
             f"{path} is in {actual}, expected {TARGET_CRS}. "
             "Reprojection happens once at ingestion, never here."
+        )
+    if src.nodata is None:
+        src.close()
+        raise ValueError(
+            f"{path} declares no nodata value, so a masked pixel cannot be "
+            "told apart from a real zero. Earth Engine writes masked pixels as "
+            "0 and omits the tag unless the export asks for one; re-export with "
+            "formatOptions={'noData': ...}."
         )
     return src
 

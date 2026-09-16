@@ -91,3 +91,9 @@ INDICES = {
 MIN_SUBPIXELS = 5
 ZONE_SIZE_M = 30
 NATIVE_SIZE_M = 10
+
+# Written into every exported raster for masked pixels, and declared in the
+# GeoTIFF nodata tag. Earth Engine writes masked pixels as 0 and omits the tag
+# unless asked, which would make a cloudy day indistinguishable from a reading
+# of zero greenness. Outside the range of any scaled index or sub-pixel count.
+NODATA = -32768
