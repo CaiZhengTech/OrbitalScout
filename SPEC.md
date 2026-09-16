@@ -260,7 +260,7 @@ Cloud masking, CRS reprojection, and zonal aggregation are applied **once during
 
 ## 12. Storage
 
-DuckDB over Parquet, local. At the 30m zone size of Section 6 the full modelling dataset is roughly 180 million zone-date rows, on the order of 3 GB, and fits on a laptop. This claim is conditional on 30m and is not true at 10m, where the same AOI would be about 1.6 billion rows and roughly 25 GB. The two were inconsistent in earlier drafts.
+DuckDB over Parquet, local. At the 30m zone size of Section 6 the full modelling dataset is on the order of 10^8 zone-date rows and a few GB, and fits on a laptop. The exact figure is recorded in `RESULTS.md` once Step 1 completes; the pre-measurement estimate of 180 million assumed unbuffered fields, and the inward buffer of Section 6 removes roughly a quarter of each field's area. This claim is conditional on 30m and is not true at 10m, where the same AOI would be about 1.6 billion rows and roughly 25 GB. The two were inconsistent in earlier drafts.
 
 Justification for interview: the joins across five years of zone-level data are cleaner in SQL, and DuckDB reads Parquet directly with no server. Not chosen for scale, chosen for join ergonomics at small scale.
 

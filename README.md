@@ -2,10 +2,13 @@
 
 ### Telling a farmer which parts of a field to walk today, and measuring whether the answer is any good.
 
-> **Status: Step 0 done, Step 1 in progress.**
+> **Status: Step 0 done. Step 1 (data ingestion) partly built and running.**
 > The plan and the scoring rules were written and committed *before* any data was downloaded, with
-> timestamps to prove it. **No accuracy result exists yet.** Every unmeasured figure is marked `[TBD]`.
-> There are no estimated or placeholder numbers anywhere in this repository.
+> timestamps to prove it. The satellite pipeline now runs and its first season is verified end to end.
+> **No accuracy result exists yet**, because that is Step 4. Every unmeasured figure is marked `[TBD]`,
+> and there are no estimated or placeholder numbers anywhere in this repository.
+>
+> Progress: ✅ Step 0 gate · 🔨 Step 1 ingestion · ⬜ Step 2 baseline · ⬜ Step 3 ranking · ⬜ Step 4 evaluation
 
 ---
 
@@ -39,7 +42,7 @@ So the real deliverable here is not the map. **It is the scoring system that tel
 | Catching a subtle bug that would have faked a good result | [`docs/reviews/2026-09-14-council-label-review.md`](docs/reviews/) |
 | Changing course when a measurement contradicted the plan, and writing down why | [`RESULTS.md`](RESULTS.md) findings 1 to 3 |
 | Test-first discipline on code that fails silently rather than loudly | [`tests/test_melt.py`](tests/test_melt.py) |
-| Data engineering at scale on a laptop, with the arithmetic done first | ~180 million rows, ~3 GB, no cloud bill |
+| Data engineering on a laptop, with the arithmetic done *before* committing to a design | ~800k zones, order 10⁸ rows, a few GB, no cloud bill |
 | Knowing what *not* to build | No Docker, no orchestrator, no API, no ML model so far |
 
 ---
@@ -107,7 +110,7 @@ The local reshape is a reshape and nothing else: no masking, no reprojection, no
 | Imagery and masking | Google Earth Engine | Cloud Score+ lives here, and doing pixels elsewhere would mean two grids and a co-registration problem |
 | Cloud masking | Cloud Score+ `cs` >= 0.60 | Shadow is the dominant false positive and the SCL band handles it worst |
 | Field boundaries | USDA CSB, Earth Engine asset | USDA already solved road and rail splitting; the Common Land Unit is legally unavailable |
-| Storage | DuckDB over Parquet | About 180M rows, roughly 3 GB. Chosen for join ergonomics at small scale, not for scale |
+| Storage | DuckDB over Parquet | Order 10⁸ rows, a few GB. Chosen for join ergonomics at small scale, not for scale |
 | Raster IO | rasterio | Reads the exported cube. Nothing else touches a raster |
 | Compute | NumPy, pandas, CPU only | Zero marginal cost is a project goal |
 | Testing | pytest | Split logic and the melt are the highest-value tests in the repo |
@@ -211,6 +214,19 @@ Story County, Iowa. Distinct acquisition dates on which a pixel was clear, sampl
 2. **Two orbits split the county.** 64% of it gets roughly twice the observations of the rest, along a boundary with no agronomic meaning. The AOI is restricted to the doubly covered region.
 3. **Crop rotation halves per-zone history.** Crop changes across 82% of consecutive year pairs, leaving 2 to 4 seasons per zone-crop. This is what forced the within-field relative baseline.
 
+### Step 1: area of interest and fields (measured)
+
+| quantity | value |
+|---|---|
+| County area | 1483.5 km² |
+| **Study area** after restricting to reliable satellite coverage | **996.5 km²** (67% of the county) |
+| Field boundaries in the county | 6,027 |
+| Grew corn or soybean in at least 6 of 8 seasons | 5,033 |
+| **Selected** (those, inside the study area) | **3,445** |
+| Mean field size | 52.9 acres |
+
+One season was verified end to end before the rest were queued. The four clear July dates in the [worked example](#-a-worked-example) above come from that check: real output from this pipeline, not an illustration.
+
 ### Evaluation results
 
 No evaluation has been run. This table is the output of the build, not a target.
@@ -284,9 +300,23 @@ Counts clear observations per zone for every season and evaluates gate G-0. Take
 python -m pytest tests/ -q
 ```
 
+### Export one season from Earth Engine
+
+```python
+from orbitalscout.ingest import gee
+aoi = gee.build_aoi()
+values, counts, dates = gee.season_cubes(2020, aoi)
+gee.start_export(values, "orbitalscout_values_2020", aoi)
+```
+
+Exports land in a Google Drive folder named `orbitalscout`. Drive rather than a
+cloud bucket because this export runs once: reproducibility lives in the code,
+not in where the bytes were staged, and a bucket would mean enabling billing for
+nothing.
+
 ### Remaining stages
 
-`[TBD]`. Steps 1 through 4 are not yet runnable. The Makefile lands with Step 1.
+`[TBD]`. Steps 2 through 4 are not yet runnable. The Makefile lands when Step 1 completes.
 
 ---
 
@@ -299,6 +329,7 @@ orbitalscout/
 ├── ingest/
 │   ├── gee.py                # S2 + Cloud Score+ + index + reduce, one expression, cube export
 │   ├── melt.py               # cube to long rows. A reshape only: no mask, no reproject
+│   ├── load.py               # long to wide, into the three DuckDB tables
 │   ├── masking.py            # the single clear-observation threshold
 │   ├── boundaries.py         # CSB field selection, inward buffer, field_id painting
 │   ├── cdl.py                # G-4 mismatch rate only. Not a source of zone crop labels
@@ -318,6 +349,7 @@ scripts/step0_observations.py # gate G-0
 tests/
 ├── test_splits.py            # leakage tests. The most important tests in the repo
 ├── test_melt.py              # a masked pixel becomes an absent row, never a zero
+├── test_load.py              # a masked index becomes NULL, never a zero
 └── test_baseline.py          # baseline against a known synthetic series
 demo/index.html               # MapLibre, one file, no backend
 docs/reviews/                 # dated design reviews, all predating the data
