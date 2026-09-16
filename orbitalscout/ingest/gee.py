@@ -82,26 +82,56 @@ def selected_fields(aoi):
     )
 
 
+def indexed_fields(fields):
+    """Assign each field a dense integer index, ordered by CSBID.
+
+    Sorted rather than left in collection order because the raster and the
+    lookup table are built by two separate calls, and Earth Engine does not
+    guarantee a stable iteration order. An unstable index would point every
+    zone at the wrong field, with nothing anywhere to raise on.
+    """
+    ordered = fields.sort(config.CSB_FIELD_ID).toList(fields.size())
+    return ee.FeatureCollection(
+        ordered.zip(ee.List.sequence(1, ordered.size())).map(
+            lambda pair: ee.Feature(ee.List(pair).get(0))
+            .set("field_idx", ee.List(pair).get(1))
+        )
+    )
+
+
 def field_id_image(fields):
-    """Paint a dense integer field index, inward-buffered by one zone width.
+    """Paint the dense field index, inward-buffered by one zone width.
 
     The buffer is applied before painting so that no 30m zone straddles a field
-    edge and mixes two fields' pixels. CSBID is a 15-digit string, so a dense
-    index is painted instead and the mapping is exported alongside.
+    edge and mixes two fields' pixels.
     """
-    indexed = ee.FeatureCollection(
-        fields.toList(fields.size()).map(
+    buffered = ee.FeatureCollection(
+        indexed_fields(fields).toList(fields.size()).map(
             lambda f: ee.Feature(f).buffer(config.FIELD_BUFFER_M)
         )
     )
-    with_index = ee.FeatureCollection(
-        indexed.toList(indexed.size()).zip(
-            ee.List.sequence(1, indexed.size())
-        ).map(lambda pair: ee.Feature(ee.List(pair).get(0))
-              .set("field_idx", ee.List(pair).get(1)))
-    )
-    painted = with_index.reduceToImage(["field_idx"], ee.Reducer.first())
+    painted = buffered.reduceToImage(["field_idx"], ee.Reducer.first())
     return painted.unmask(config.NODATA).int32().rename("field_id")
+
+
+def export_fields_table(fields, description="orbitalscout_fields"):
+    """Export the index-to-field lookup, from the same ordering as the raster.
+
+    Carries one crop code per year, which is what lets the baseline be
+    crop-aware without ever reading a CDL raster.
+    """
+    columns = ["field_idx", config.CSB_FIELD_ID, "CSBACRES"] + [
+        config.CSB_CROP_PROPERTY.format(year=y) for y in config.YEARS
+    ]
+    task = ee.batch.Export.table.toDrive(
+        collection=indexed_fields(fields).select(columns, retainGeometry=False),
+        description=description,
+        folder=config.DRIVE_FOLDER,
+        fileNamePrefix=description,
+        fileFormat="CSV",
+    )
+    task.start()
+    return task
 
 
 def _masked_indices(image):
