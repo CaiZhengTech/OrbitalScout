@@ -56,10 +56,20 @@ def list_folder(session, folder_name):
 
     files = session.get(DRIVE_FILES, params={
         "q": f"'{folders[0]['id']}' in parents and trashed = false",
-        "fields": "files(id,name,size)",
+        "fields": "files(id,name,size,createdTime)",
         "pageSize": 1000,
     }).json().get("files", [])
-    return sorted(files, key=lambda f: f["name"])
+
+    # Earth Engine writes a NEW Drive file on every export rather than
+    # overwriting, so re-exporting leaves two files with the same name. Keep
+    # only the newest of each, or a correction silently fetches the version it
+    # was meant to replace.
+    newest = {}
+    for entry in files:
+        seen = newest.get(entry["name"])
+        if seen is None or entry["createdTime"] > seen["createdTime"]:
+            newest[entry["name"]] = entry
+    return sorted(newest.values(), key=lambda f: f["name"])
 
 
 def download(session, file_id, destination):
