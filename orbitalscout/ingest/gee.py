@@ -202,8 +202,12 @@ def _masked_indices(image):
     return ee.Image.cat(bands).updateMask(clear)
 
 
-def season_cubes(year, aoi):
-    """Value cube and count cube for one season, aggregated to 30m.
+def season_cubes(year, aoi, zone_size_m=config.ZONE_SIZE_M):
+    """Value cube and count cube for one season, aggregated to the zone size.
+
+    zone_size_m defaults to the production 30m. At the native 10m, used only
+    for the zone-size comparison of issue #7, nothing is aggregated: each
+    pixel is its own zone and its count is 1 where clear.
 
     Returns (value_image, count_image, dates). Values are scaled by 10000 and
     stored as int16 so the export is a quarter the size of float32 and still
@@ -241,14 +245,22 @@ def season_cubes(year, aoi):
             .mosaic()
             .reproject(crs="EPSG:5070", scale=config.NATIVE_SIZE_M)
         )
-        aggregated = (
-            native.reduceResolution(
-                reducer=ee.Reducer.mean().combine(ee.Reducer.count(), sharedInputs=True),
-                maxPixels=16,
+        if zone_size_m == config.NATIVE_SIZE_M:
+            # Same band names as the aggregated path, so everything below and
+            # the melt read both identically.
+            aggregated = native.rename([f"{n}_mean" for n in config.INDICES]).addBands(
+                native.select(list(config.INDICES)[0]).mask().rename("ndvi_count")
             )
-            .reproject(crs="EPSG:5070", scale=config.ZONE_SIZE_M)
-        )
-        enough = aggregated.select("ndvi_count").gte(config.MIN_SUBPIXELS)
+            enough = aggregated.select("ndvi_count").gte(1)
+        else:
+            aggregated = (
+                native.reduceResolution(
+                    reducer=ee.Reducer.mean().combine(ee.Reducer.count(), sharedInputs=True),
+                    maxPixels=16,
+                )
+                .reproject(crs="EPSG:5070", scale=zone_size_m)
+            )
+            enough = aggregated.select("ndvi_count").gte(config.MIN_SUBPIXELS)
 
         for name in config.INDICES:
             value_bands.append(
@@ -271,7 +283,7 @@ def season_cubes(year, aoi):
     return values, counts, dates
 
 
-def start_export(image, description, aoi):
+def start_export(image, description, aoi, scale=config.ZONE_SIZE_M):
     """Queue one batch export to Drive. Returns the task, already started."""
     task = ee.batch.Export.image.toDrive(
         image=image.clip(aoi),
@@ -279,7 +291,7 @@ def start_export(image, description, aoi):
         folder=config.DRIVE_FOLDER,
         fileNamePrefix=description,
         region=aoi,
-        scale=config.ZONE_SIZE_M,
+        scale=scale,
         crs="EPSG:5070",
         maxPixels=int(1e10),
         fileFormat="GeoTIFF",
