@@ -75,31 +75,46 @@ def main():
         groups = top.groupby(["field_id", "year"]).size()
         print(f"  {label:<16} {len(top):>13,} {len(groups):>8,} {groups.mean():>15.1f}")
 
+    # D1: ranking by absolute level reproduces the permanent soil map, and the
+    # residual is supposed to remove it. A leak would show as a NEGATIVE
+    # correlation, urgent zones being the persistently poor ones.
+    #
+    # Persistent standing must come from years the baseline never saw.
+    # Correlating the score against the baseline it is computed from is
+    # guaranteed positive, because the score is baseline minus relative and
+    # Cov(residual, baseline) is minus the variance of the baseline's own
+    # estimation noise. That is the shared-estimation-error trap of open item
+    # 10b, so later years are used instead.
     print("\nDoes the ranking reproduce the soil map? (D1)")
-    print("  correlation between the S1 score and the zone's own persistent standing\n")
-    print(f"  {'year':>5} {'zone-years':>11} {'Pearson':>9} {'Spearman':>9}")
+    print("  urgency in year t against persistent standing from years after t\n")
+    print(f"  {'year':>5} {'standing from':>15} {'zone-years':>11} {'Pearson':>9} {'Spearman':>9}")
+    lo, hi = config.FEATURE_BINS
     for year in bb.HELD_OUT:
-        row = con.execute(f"""
+        later = [y for y in bb.HELD_OUT if y > year]
+        if not later:
+            print(f"  {year:>5} {'none available':>15} {'-':>11} {'-':>9} {'-':>9}")
+            continue
+        years = ", ".join(str(y) for y in later)
+        n, pearson, spearman = con.execute(f"""
             WITH standing AS (
-                SELECT zone_id, year, avg(baseline_ndvi) AS persistent
+                SELECT zone_id, avg(rel_ndvi) AS persistent
                 FROM read_parquet('{bb.OUT.as_posix()}/baseline_*.parquet')
-                WHERE year = {year} AND bin BETWEEN {config.FEATURE_BINS[0]} AND {config.FEATURE_BINS[1]}
-                  AND baseline_ndvi IS NOT NULL
-                GROUP BY zone_id, year
+                WHERE year IN ({years}) AND bin BETWEEN {lo} AND {hi}
+                  AND rel_ndvi IS NOT NULL
+                GROUP BY zone_id
             ),
             joined AS (
-                SELECT r.score, s.persistent FROM r JOIN standing s
-                  ON s.zone_id = r.zone_id AND s.year = r.year
+                SELECT r.score, s.persistent FROM r
+                JOIN standing s USING (zone_id) WHERE r.year = {year}
             )
             SELECT count(*), corr(score, persistent),
-                   (SELECT corr(a, b) FROM (SELECT rank() OVER (ORDER BY score) AS a,
-                                                   rank() OVER (ORDER BY persistent) AS b
-                                            FROM joined))
+                   (SELECT corr(a, b) FROM (
+                        SELECT rank() OVER (ORDER BY score) AS a,
+                               rank() OVER (ORDER BY persistent) AS b FROM joined))
             FROM joined
         """).fetchone()
-        n, pearson, spearman = row
-        print(f"  {year:>5} {n:>11,} {pearson:>9.3f} {spearman:>9.3f}")
-    print("\n  near zero means the residual removed the permanent soil signal, as D1 intends")
+        print(f"  {year:>5} {years:>15} {n:>11,} {pearson:>9.3f} {spearman:>9.3f}")
+    print("\n  a soil-map leak would be negative; near zero is the residual working")
     con.close()
     return 0
 
