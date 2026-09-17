@@ -56,9 +56,15 @@ EE_PROJECT_ENV = "ORBITALSCOUT_EE_PROJECT"
 # bytes were staged, and GCS would mean enabling billing for nothing.
 DRIVE_FOLDER = "orbitalscout"
 
-# The AOI is materialised once and every later step reads it, so that the
-# definition cannot drift between steps.
+# The AOI and the selected field set are materialised once as Earth Engine
+# assets, and every later step reads the assets rather than recomputing.
+# Recomputing would re-derive the AOI from live Sentinel-2 footprints, and a
+# footprint that shifts at the 90% coverage margin moves a field in or out.
+# Because field numbering is dense and sorted, that renumbers every field after
+# it, so a raster exported today would silently disagree with a lookup table
+# exported tomorrow while each stayed internally consistent.
 AOI_ASSET = "projects/{project}/assets/orbitalscout_aoi"
+FIELDS_ASSET = "projects/{project}/assets/orbitalscout_fields"
 
 # A pixel is in the AOI if the restricting orbit covered it in at least this
 # fraction of that orbit's acquisitions. Absorbs small footprint variation.
@@ -91,3 +97,9 @@ INDICES = {
 MIN_SUBPIXELS = 5
 ZONE_SIZE_M = 30
 NATIVE_SIZE_M = 10
+
+# Written into every exported raster for masked pixels, and declared in the
+# GeoTIFF nodata tag. Earth Engine writes masked pixels as 0 and omits the tag
+# unless asked, which would make a cloudy day indistinguishable from a reading
+# of zero greenness. Outside the range of any scaled index or sub-pixel count.
+NODATA = -32768

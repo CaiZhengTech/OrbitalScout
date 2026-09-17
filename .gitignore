@@ -24,6 +24,12 @@ venv/
 .ruff_cache/
 .ipynb_checkpoints/
 
+# Test fixtures are real data, deliberately committed. They are a crop of the
+# Earth Engine export, about 20 KB, and carry the file shapes that synthetic
+# fixtures do not reproduce.
+!tests/fixtures/
+!tests/fixtures/*.tif
+
 # OS
 .DS_Store
 Thumbs.db

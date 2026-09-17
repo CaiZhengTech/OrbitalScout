@@ -12,9 +12,15 @@ per index because the mask is shared, so all three indices see the same valid
 sub-pixels.
 """
 
+import csv
+import json
+import pathlib
+
 import ee
 
 from .. import config
+
+FROZEN = pathlib.Path(__file__).resolve().parents[1] / "frozen"
 
 
 def county_geometry():
@@ -52,6 +58,52 @@ def build_aoi():
     )
 
 
+def frozen_aoi(project=None):
+    """The AOI as frozen in orbitalscout/frozen/aoi.geojson.
+
+    Read rather than recomputed. build_aoi derives the polygon from live
+    Sentinel-2 footprints, and a footprint that shifts at the coverage margin
+    moves a field in or out; because field numbering is dense and sorted, that
+    renumbers every field after it. A raster exported today would then disagree
+    with a lookup table exported tomorrow, each internally consistent and
+    nothing to raise on. DESIGN D18, architecture note Decision 4.
+
+    Frozen to a file in the repository rather than an Earth Engine asset, so
+    anyone who clones gets the identical AOI and field numbering without
+    needing access to one account's assets. `project` is accepted and ignored
+    so callers need not care where the freeze lives.
+    """
+    with open(FROZEN / "aoi.geojson", encoding="utf-8") as handle:
+        return ee.Geometry(json.load(handle))
+
+
+def frozen_field_order():
+    """The frozen field_idx to CSBID mapping, as two aligned lists."""
+    indices, ids = [], []
+    with open(FROZEN / "fields.csv", newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            indices.append(int(row["field_idx"]))
+            ids.append(row["csbid"])
+    return indices, ids
+
+
+def frozen_fields(project=None):
+    """The selected fields, carrying the frozen dense field_idx.
+
+    Rebuilt from the CSB asset by filtering to the frozen id list, so the
+    numbering comes from the repository rather than from whatever order Earth
+    Engine happens to return.
+    """
+    indices, ids = frozen_field_order()
+    lookup = ee.Dictionary.fromLists(ids, indices)
+    collection = ee.FeatureCollection(config.CSB_ASSET).filter(
+        ee.Filter.inList(config.CSB_FIELD_ID, ee.List(ids))
+    )
+    return collection.map(
+        lambda f: f.set("field_idx", lookup.get(f.get(config.CSB_FIELD_ID)))
+    )
+
+
 def selected_fields(aoi):
     """CSB fields inside the AOI that grew a registry crop often enough.
 
@@ -82,25 +134,58 @@ def selected_fields(aoi):
     )
 
 
-def field_id_image(fields):
-    """Paint a dense integer field index, inward-buffered by one zone width.
+def indexed_fields(fields):
+    """Assign each field a dense integer index, ordered by CSBID.
+
+    Sorted rather than left in collection order because the raster and the
+    lookup table are built by two separate calls, and Earth Engine does not
+    guarantee a stable iteration order. An unstable index would point every
+    zone at the wrong field, with nothing anywhere to raise on.
+    """
+    ordered = fields.sort(config.CSB_FIELD_ID).toList(fields.size())
+    return ee.FeatureCollection(
+        ordered.zip(ee.List.sequence(1, ordered.size())).map(
+            lambda pair: ee.Feature(ee.List(pair).get(0))
+            .set("field_idx", ee.List(pair).get(1))
+        )
+    )
+
+
+def field_id_image(fields, already_indexed=False):
+    """Paint the dense field index, inward-buffered by one zone width.
 
     The buffer is applied before painting so that no 30m zone straddles a field
-    edge and mixes two fields' pixels. CSBID is a 15-digit string, so a dense
-    index is painted instead and the mapping is exported alongside.
+    edge and mixes two fields' pixels.
     """
-    indexed = ee.FeatureCollection(
-        fields.toList(fields.size()).map(
+    indexed = fields if already_indexed else indexed_fields(fields)
+    buffered = ee.FeatureCollection(
+        indexed.toList(indexed.size()).map(
             lambda f: ee.Feature(f).buffer(config.FIELD_BUFFER_M)
         )
     )
-    with_index = ee.FeatureCollection(
-        indexed.toList(indexed.size()).zip(
-            ee.List.sequence(1, indexed.size())
-        ).map(lambda pair: ee.Feature(ee.List(pair).get(0))
-              .set("field_idx", ee.List(pair).get(1)))
+    painted = buffered.reduceToImage(["field_idx"], ee.Reducer.first())
+    return painted.unmask(config.NODATA).int32().rename("field_id")
+
+
+def export_fields_table(fields, description="orbitalscout_fields", already_indexed=False):
+    """Export the index-to-field lookup, from the same ordering as the raster.
+
+    Carries one crop code per year, which is what lets the baseline be
+    crop-aware without ever reading a CDL raster.
+    """
+    columns = ["field_idx", config.CSB_FIELD_ID, "CSBACRES"] + [
+        config.CSB_CROP_PROPERTY.format(year=y) for y in config.YEARS
+    ]
+    indexed = fields if already_indexed else indexed_fields(fields)
+    task = ee.batch.Export.table.toDrive(
+        collection=indexed.select(columns, retainGeometry=False),
+        description=description,
+        folder=config.DRIVE_FOLDER,
+        fileNamePrefix=description,
+        fileFormat="CSV",
     )
-    return with_index.reduceToImage(["field_idx"], ee.Reducer.first()).rename("field_id")
+    task.start()
+    return task
 
 
 def _masked_indices(image):
@@ -178,7 +263,12 @@ def season_cubes(year, aoi):
             .rename(f"count_{stamp}")
         )
 
-    return ee.Image.cat(value_bands), ee.Image.cat(count_bands), dates
+    # Masked pixels are written as the sentinel and declared in the nodata tag
+    # by start_export. Without that, Earth Engine writes 0 and leaves the tag
+    # unset, and every cloudy pixel reads back as a valid zero.
+    values = ee.Image.cat(value_bands).unmask(config.NODATA).int16()
+    counts = ee.Image.cat(count_bands).unmask(config.NODATA).int16()
+    return values, counts, dates
 
 
 def start_export(image, description, aoi):
@@ -193,6 +283,7 @@ def start_export(image, description, aoi):
         crs="EPSG:5070",
         maxPixels=int(1e10),
         fileFormat="GeoTIFF",
+        formatOptions={"noData": config.NODATA},
     )
     task.start()
     return task
