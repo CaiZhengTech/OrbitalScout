@@ -275,6 +275,65 @@ Excluding bins that are ever a partial last bin raises coverage only from 83.6% 
 
 **Neither parameter has been chosen.** The pre-stated coverage rule points at the width that the Step 2 decision record named as too coarse to resolve growth stages, so this goes back for an explicit decision rather than a quiet relaxation of the rule.
 
+### Parameters chosen
+
+Cloud threshold 50%, bin width 200 GDD, prior-year floor 3. Reasoning in `docs/reviews/2026-09-17-step2-decisions.md`, amendment Decisions 5 and 6.
+
+### Baseline built on real data
+
+Run with `python scripts/build_baseline.py` on 2026-09-17. Field medians computed once over all zones (725,484 field-dates), then the windowed baseline over ten deterministic chunks of zones reusing them. **71,345,419 zone-year-bin cells**, about 4.2 GB of Parquet in `data/baseline/`.
+
+### Reporting owed by Step 2
+
+**1. Bin coverage the retired rule would have scored.** At 200 GDD and a 50% clear threshold: **82.4%**, from the 5% zone sample in `scripts/step2_measure.py`. Below the retired rule's 90%, as recorded when that rule was retired.
+
+**2. Prior-year support in the held-out years, and the gate.**
+
+| year | cells | 0 | 1 | 2 | 3 | 4 | 5+ | excluded by floor of 3 |
+|---|---|---|---|---|---|---|---|---|
+| 2023 | 9,805,464 | 0.2% | 1.6% | 10.1% | 28.1% | 36.0% | 24.0% | **12.0%** |
+| 2024 | 9,729,563 | 0.0% | 0.3% | 1.9% | 11.5% | 28.8% | 57.5% | 2.2% |
+| 2025 | 8,745,086 | 0.0% | 0.0% | 0.2% | 1.8% | 11.0% | 86.9% | 0.2% |
+
+Excluded share by year and bin:
+
+| bin | GDD | 2023 | 2024 | 2025 |
+|---|---|---|---|---|
+| 0 | 0 to 200 | 1.0% | 0.2% | 0.0% |
+| 1 | 200 to 400 | 7.5% | 3.4% | 0.3% |
+| 2 | 400 to 600 | 6.8% | 1.1% | 0.0% |
+| 3 | 600 to 800 | 0.5% | 0.2% | 0.0% |
+| 4 | 800 to 1000 | 0.9% | 0.0% | 0.0% |
+| 5 | 1000 to 1200 | 7.2% | 4.2% | 0.3% |
+| 6 | 1200 to 1400 | 0.1% | 0.0% | 0.0% |
+| 7 | 1400 to 1600 | 1.0% | 0.0% | 0.0% |
+| 8 | 1600 to 1800 | 8.5% | 2.7% | 0.1% |
+| 9 | 1800 to 2000 | 11.7% | 4.6% | 1.5% |
+| 10 | 2000 to 2200 | 0.1% | 1.0% | 0.1% |
+| 11 | 2200 to 2400 | **31.1%** | 4.1% | 0.1% |
+| 12 | 2400 to 2600 | **30.4%** | 1.0% | 0.0% |
+| 13 | 2600 to 2800 | **54.9%** | 8.5% | 3.4% |
+| 14 | 2800 to 3000 | 4.4% | 0.7% | 0.0% |
+| 15 | 3000 to 3200 | **100.0%** (68,908 cells) | none | none |
+
+**The gate tripped.** The floor was allowed to exclude at most a fifth of cells anywhere. It exceeds that in four places, all in 2023 and all late season: bins 11, 12, 13 and 15. Items 3 to 5 of the reporting owed were not run, because the gate is a stop condition.
+
+**Cause, measured from the weather and planting tables rather than inferred.** Two earlier decisions interact with 2023 having only five prior years.
+
+The derecho exclusion (Decision 2) removes 2020 from exactly the late bins. 2020 corn entered bin 11 on 15 August and soybean on 19 August, both after the 10 August storm. For 2023 that leaves at most four usable prior years in bins 11 to 14, so a floor of three requires three of four to be observed, and late-season cloud misses enough to exclude roughly a third of cells. 2024 and 2025 keep five and six usable prior years in the same bins and pass.
+
+| bin | GDD | corn prior years usable for 2023 | soybean prior years usable for 2023 |
+|---|---|---|---|
+| 9 | 1800 to 2000 | 5 of 5 | 5 of 5 |
+| 10 | 2000 to 2200 | 5 of 5 | 4 of 5 |
+| 11 to 13 | 2200 to 2800 | 4 of 5 | 4 of 5 |
+| 14 | 2800 to 3000 | 4 of 5 | 3 of 5 |
+| 15 | 3000 to 3200 | 2 of 5 | 1 of 5 |
+
+Bin 15 cannot pass by construction: only one or two of the prior crop-years accumulate 3,000 GDD before 30 September, so a floor of three is unreachable regardless of cloud. It is a season-edge artifact, 1% of 2023's cells.
+
+**Why this is consequential rather than cosmetic.** The primary label is the end-of-season residual, which lives in the late bins. For the 2023 holdout, the cells the label depends on are the ones with the thinnest support. This is a decision for the evaluation, not a baseline bug, and it is recorded here before any label or evaluation number exists.
+
 ## Step 2 onward
 
-`[TBD]`. Cloud threshold and bin width not yet chosen. Baseline not yet built on real data. 10m against 30m zone size comparison not yet measured.
+`[TBD]`. Stopped at the support gate pending a decision. Not yet run: derecho sensitivity, corn-versus-soybean correlation, green-up spread, 10m against 30m zone size comparison.
