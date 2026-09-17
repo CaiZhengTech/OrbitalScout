@@ -408,6 +408,23 @@ Unidentifiable field-years, where the first clear reading was already past the l
 
 Half-amplitude green-up corresponds to mid-canopy development, and a median of 47 days after 50% planting is consistent with that for corn. The interquartile ranges of 11 and 15 days are roughly one 200 GDD bin in midsummer. Field-to-field planting variation within a year is a field-year constant that the within-field baseline cancels, so this spread matters only for cross-year bin alignment, where it amounts to about one bin of misalignment for the middle half of field-years. Recorded as the size of the anchor's limitation rather than as grounds to change it.
 
+**6. Zone size, 10m against 30m.** Issue #7. Metric and prior expectation were committed before any 10m pixel was exported (`scripts/zone_size_export.py`, commit c74bef5). Fifty fields: one chosen with the project seed plus its 49 nearest neighbours, a 16.3 km2 box, frozen in `orbitalscout/frozen/zone_size_sample.csv`. The architecture note asked for a scattered random sample; an Earth Engine export is rectangular, so scattered fields would have meant a county-sized 10m box, roughly 1.5 GB per season. Noise and co-registration jitter are not organised at county scale, so a compact block samples them fairly, but the deviation is recorded.
+
+Both resolutions run through the same production baseline views. Per zone and year, the mean within-field relative NDVI over the label window; per zone, the standard deviation of that across years, zones with at least three years.
+
+| zone size | zones | median SD | p25 | p75 |
+|---|---|---|---|---|
+| 10m | 59,327 | 0.0125 | 0.0072 | 0.0253 |
+| 30m | 7,469 | 0.0128 | 0.0071 | 0.0257 |
+
+Ratio of median SD, 10m over 30m: **0.98**.
+
+**The prior expectation is not supported.** Issue #7 predicted 30m would show clearly lower year-over-year variation because averaging nine pixels suppresses sensor noise and roughly one pixel of co-registration jitter. The two are indistinguishable, and 10m is marginally lower.
+
+The honest reading is that year-over-year variation in this quantity is not dominated by independent per-pixel noise, so aggregating nine pixels does not reduce it. Two caveats bound the claim. The metric averages over four bins and several dates before the standard deviation is taken, so per-date pixel noise is already largely averaged out on both sides; this is a fair measure of the stability of the label-window quantity, which is what the evaluation uses, but it is not a sensitive test of jitter itself, which a single-date comparison would be. And the two sides apply their minimum-valid rule at different scales: a 30m zone-date needs five of nine sub-pixels clear, while a 10m pixel-date needs only itself, so the 30m side discards partly clouded dates the 10m side keeps.
+
+**The zone size does not change.** 30m rested on three arguments. Volume: 10m over the full AOI is about 1.6 billion rows against a single-digit GB storage claim, which stands and is decisive. Native resolution: red edge and SWIR are 20m on Sentinel-2, so a 10m NDRE or NDWI zone interpolates, which stands. Noise and jitter: **not supported by this measurement**, and that argument should not be repeated in the write-up.
+
 ## Step 2 onward
 
-`[TBD]`. 10m against 30m zone size comparison: sample frozen and exports queued, not yet measured.
+`[TBD]`. Step 3, signal S1 alone, not started.
