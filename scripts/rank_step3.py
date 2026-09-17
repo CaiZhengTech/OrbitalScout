@@ -7,11 +7,20 @@ each field-year and writes the ranking. Then reports two things:
   - whether the ranking reproduces the permanent soil map.
 
 The second is the point of the whole project. D1 says ranking by absolute level
-reproduces the soil map, and the residual is supposed to remove it. The zone's
-own baseline, its persistent relative standing, is the soil map proxy, so the
-correlation between the S1 score and that baseline says whether the residual
-actually removed it. Near zero is the design working. This is a sanity check,
-not the evaluation: precision@k and the null comparisons are Step 4.
+reproduces the soil map, and the residual is supposed to remove it. A leak would
+show as a negative correlation between urgency and a zone's persistent standing,
+urgent zones being the ones that are always poor.
+
+Persistent standing is measured from years the strictly prior baseline never
+saw. Correlating the score against the baseline it is computed from looks like
+the same test and is not one: the score is baseline minus relative, and the
+covariance of the residual with the baseline is minus the variance of the
+baseline's own estimation noise, so a positive result is arithmetic rather than
+evidence. That is the shared-estimation-error trap of open item 10b.
+
+This is a sanity check on the premise, not the evaluation. Whether the ranking
+is correct is precision@k against the label, and whether it beats the obvious
+alternatives is lift over B1a and B1b. Both are Step 4.
 
 Run:
     python scripts/rank_step3.py
