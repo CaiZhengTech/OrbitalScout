@@ -13,6 +13,8 @@ import re
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import rasterio
 
 TARGET_CRS = "EPSG:5070"
@@ -84,70 +86,136 @@ def _iso(compact):
     return f"{compact[:4]}-{compact[4:6]}-{compact[6:]}"
 
 
+def _wide_columns(index_names):
+    return ["zone_id", "field_id", "year", "date"] + list(index_names) + ["n_valid"]
+
+
+def _iter_date_frames(values, counts, fields, value_bands, count_by_date, year,
+                      min_valid, index_names):
+    """One wide frame per acquisition date, so nothing holds a whole season.
+
+    A season of real data is roughly 26 million rows in long form, which does
+    not fit in memory once the index name is stored as a string on every row.
+    The wide form carries the same information in a third of the rows without
+    that column, and yielding per date bounds the peak regardless of season
+    length.
+    """
+    field_arr = fields.read(1, masked=True)
+    rows, cols = field_arr.shape
+    col_idx, row_idx = np.meshgrid(np.arange(cols), np.arange(rows))
+    xs, ys = values.xy(row_idx.ravel(), col_idx.ravel())  # pixel centres
+    zone_ids = np.array(
+        [zone_id_from_xy(x, y) for x, y in zip(xs, ys)], dtype="int64"
+    ).reshape(rows, cols)
+
+    # Field indices start at 1. Earth Engine fills the gap between the export
+    # region and the raster bounding box with 0 rather than the declared
+    # nodata, so a real export carries two absent markers and honouring only
+    # the mask would admit every out-of-region pixel.
+    in_field = ~np.ma.getmaskarray(field_arr) & (field_arr.filled(0) > 0)
+
+    bands_by_date = {}
+    for number, parts in value_bands.items():
+        bands_by_date.setdefault(parts["date"], {})[parts["index"]] = number
+
+    for stamp in sorted(bands_by_date):
+        count_arr = counts.read(count_by_date[stamp], masked=True)
+        keep = (
+            in_field
+            & ~np.ma.getmaskarray(count_arr)
+            & (count_arr.filled(0) >= min_valid)
+        )
+        if not keep.any():
+            continue
+
+        frame = pd.DataFrame({
+            "zone_id": zone_ids[keep],
+            "field_id": field_arr.data[keep].astype("int64"),
+            "year": year,
+            "date": _iso(stamp),
+            "n_valid": count_arr.data[keep].astype("int16"),
+        })
+        for name in index_names:
+            number = bands_by_date[stamp].get(name)
+            if number is None:
+                frame[name] = np.nan
+                continue
+            value_arr = values.read(number, masked=True)
+            column = np.where(
+                np.ma.getmaskarray(value_arr)[keep],
+                np.nan,
+                value_arr.data[keep].astype("float64") / SCALE,
+            )
+            frame[name] = column
+        yield frame[_wide_columns(index_names)]
+
+
+def _prepare(values, counts, fields, value_path, count_path):
+    value_bands = _parse_bands(values.descriptions, _VALUE_BAND, value_path)
+    count_bands = _parse_bands(counts.descriptions, _COUNT_BAND, count_path)
+    count_by_date = {p["date"]: n for n, p in count_bands.items()}
+    missing = {p["date"] for p in value_bands.values()} - set(count_by_date)
+    if missing:
+        raise ValueError(
+            f"{count_path} has no count band for date(s) {sorted(missing)}"
+        )
+    index_names = sorted({p["index"] for p in value_bands.values()})
+    return value_bands, count_by_date, index_names
+
+
 def melt_cube(value_path, count_path, field_path, year, min_valid=5):
-    """Melt one season cube to long rows.
+    """Melt one season cube to wide rows, held in memory.
 
     The value cube carries every index, in bands named "<index>_<YYYYMMDD>".
     The count cube is per date only, in bands named "count_<YYYYMMDD>", because
     the cloud mask is shared across indices and so the valid sub-pixel count is
     the same for all of them.
 
-    Returns columns zone_id, field_id, year, date, index, value, n_valid.
-    One row per zone per date per index that survived masking. Absent means
-    masked; a masked pixel never becomes a zero.
+    Returns one row per zone per date that survived masking, with one column
+    per index. An index masked on a date it shares with others is NULL rather
+    than zero, and the row survives. A zone-date with no valid observation at
+    all is absent entirely.
+
+    Use melt_cube_to_parquet for a real season; this holds the result.
     """
-    with _open_checked(value_path) as values, \
-         _open_checked(count_path) as counts, \
-         _open_checked(field_path) as fields:
+    with _open_checked(value_path) as values,          _open_checked(count_path) as counts,          _open_checked(field_path) as fields:
+        value_bands, count_by_date, index_names = _prepare(
+            values, counts, fields, value_path, count_path
+        )
+        frames = list(_iter_date_frames(
+            values, counts, fields, value_bands, count_by_date, year,
+            min_valid, index_names
+        ))
 
-        value_bands = _parse_bands(values.descriptions, _VALUE_BAND, value_path)
-        count_bands = _parse_bands(counts.descriptions, _COUNT_BAND, count_path)
-        count_by_date = {p["date"]: n for n, p in count_bands.items()}
-
-        missing = {p["date"] for p in value_bands.values()} - set(count_by_date)
-        if missing:
-            raise ValueError(
-                f"{count_path} has no count band for date(s) {sorted(missing)}"
-            )
-
-        field_arr = fields.read(1, masked=True)
-        rows, cols = field_arr.shape
-        col_idx, row_idx = np.meshgrid(np.arange(cols), np.arange(rows))
-        xs, ys = values.xy(row_idx.ravel(), col_idx.ravel())  # pixel centres
-        zone_ids = np.array(
-            [zone_id_from_xy(x, y) for x, y in zip(xs, ys)], dtype="int64"
-        ).reshape(rows, cols)
-
-        frames = []
-        for band, parts in value_bands.items():
-            value_arr = values.read(band, masked=True)
-            count_arr = counts.read(count_by_date[parts["date"]], masked=True)
-
-            # Field indices start at 1. Earth Engine fills the gap between the
-            # export region and the raster bounding box with 0 rather than the
-            # declared nodata, so a real export carries two absent markers and
-            # honouring only the mask would admit every out-of-region pixel.
-            keep = (
-                ~np.ma.getmaskarray(value_arr)
-                & ~np.ma.getmaskarray(count_arr)
-                & ~np.ma.getmaskarray(field_arr)
-                & (field_arr.filled(0) > 0)
-                & (count_arr.filled(0) >= min_valid)
-            )
-            if not keep.any():
-                continue
-
-            frames.append(pd.DataFrame({
-                "zone_id": zone_ids[keep],
-                "field_id": field_arr.data[keep].astype("int64"),
-                "year": year,
-                "date": _iso(parts["date"]),
-                "index": parts["index"],
-                "value": value_arr.data[keep].astype("float64") / SCALE,
-                "n_valid": count_arr.data[keep].astype("int16"),
-            }))
-
-    columns = ["zone_id", "field_id", "year", "date", "index", "value", "n_valid"]
     if not frames:
-        return pd.DataFrame(columns=columns)
-    return pd.concat(frames, ignore_index=True)[columns]
+        return pd.DataFrame(columns=_wide_columns(index_names))
+    return pd.concat(frames, ignore_index=True)
+
+
+def melt_cube_to_parquet(value_path, count_path, field_path, year, out_path,
+                         min_valid=5):
+    """Same reshape, streamed one date at a time to a Parquet file.
+
+    Returns the number of rows written. DuckDB reads the result directly,
+    which is the reason SPEC Section 12 chose it.
+    """
+    writer = None
+    written = 0
+    try:
+        with _open_checked(value_path) as values,              _open_checked(count_path) as counts,              _open_checked(field_path) as fields:
+            value_bands, count_by_date, index_names = _prepare(
+                values, counts, fields, value_path, count_path
+            )
+            for frame in _iter_date_frames(
+                values, counts, fields, value_bands, count_by_date, year,
+                min_valid, index_names
+            ):
+                table = pa.Table.from_pandas(frame, preserve_index=False)
+                if writer is None:
+                    writer = pq.ParquetWriter(out_path, table.schema)
+                writer.write_table(table)
+                written += len(frame)
+    finally:
+        if writer is not None:
+            writer.close()
+    return written

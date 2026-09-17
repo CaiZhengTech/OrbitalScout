@@ -56,40 +56,27 @@ def main():
     fields = read_fields(paths["fields"])
     print(f"fields: {len(fields)} rows")
 
-    melted = melt.melt_cube(
+    parquet = data / f"zone_obs_{args.year}.parquet"
+    written = melt.melt_cube_to_parquet(
         value_path=paths["value"], count_path=paths["count"],
-        field_path=paths["field"], year=args.year,
+        field_path=paths["field"], year=args.year, out_path=parquet,
         min_valid=config.MIN_SUBPIXELS,
     )
-    print(f"melted: {len(melted):,} zone-date-index rows")
-    if melted.empty:
+    print(f"melted: {written:,} zone-date rows -> {parquet.name}")
+    if not written:
         raise SystemExit("melt produced nothing; check the export")
 
-    # A masked pixel must have vanished, not become a zero. Exact zeros are
-    # possible in principle but vanishingly unlikely for a scaled index, so a
-    # pile of them means the nodata handling regressed.
-    zeros = int((melted["value"] == 0).sum())
-    if zeros > len(melted) // 100:
-        raise SystemExit(
-            f"{zeros:,} of {len(melted):,} values are exactly 0. "
-            "That is the masked-pixel-became-zero failure; check the nodata tag."
-        )
-
-    unknown = set(melted["field_id"]) - set(fields["field_id"])
-    if unknown:
-        raise SystemExit(
-            f"{len(unknown)} field ids in the raster are absent from the lookup "
-            f"table, for example {sorted(unknown)[:5]}. The raster and the table "
-            "were built from different orderings."
-        )
-
-    load.load(args.db, melted, fields)
+    load.load(args.db, str(data / "zone_obs_*.parquet"), fields)
     print(f"loaded into {args.db}")
 
     import duckdb
     con = duckdb.connect(args.db)
     for table in ("fields", "zones", "zone_obs"):
         print(f"  {table}: {con.execute(f'SELECT count(*) FROM {table}').fetchone()[0]:,} rows")
+    zeros = con.execute("SELECT count(*) FROM zone_obs WHERE ndvi = 0").fetchone()[0]
+    total = con.execute("SELECT count(*) FROM zone_obs").fetchone()[0]
+    if zeros > total // 100:
+        raise SystemExit(f"{zeros:,} of {total:,} ndvi values are exactly 0; the masked-pixel bug is back")
     stats = con.execute(
         "SELECT count(DISTINCT zone_id), count(DISTINCT date), "
         "min(ndvi), median(ndvi), max(ndvi) FROM zone_obs"

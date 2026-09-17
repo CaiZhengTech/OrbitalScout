@@ -7,6 +7,7 @@ before any implementation exists.
 """
 
 import numpy as np
+import pandas as pd
 import pytest
 import rasterio
 from affine import Affine
@@ -65,16 +66,15 @@ def melt_cube(paths, **kw):
     )
 
 
-def test_all_valid_cube_yields_one_row_per_zone_date_index(cube):
+def test_all_valid_cube_yields_one_row_per_zone_date(cube):
     df = melt_cube(cube)
-    assert len(df) == 24  # 4 zones x 2 dates x 3 indices
-    assert set(df["index"]) == {"ndvi", "ndre", "ndwi"}
-    assert set(df["date"]) == {"2020-06-01", "2020-06-11"}
+    assert len(df) == 8  # 4 zones x 2 dates, one column per index
     assert set(df.columns) == {
-        "zone_id", "field_id", "year", "date", "index", "value", "n_valid"
+        "zone_id", "field_id", "year", "date", "ndvi", "ndre", "ndwi", "n_valid"
     }
-    assert df["value"].min() == pytest.approx(0.25)
-    assert df["value"].max() == pytest.approx(0.50)
+    assert set(df["date"]) == {"2020-06-01", "2020-06-11"}
+    assert df["ndvi"].min() == pytest.approx(0.25)
+    assert df["ndvi"].max() == pytest.approx(0.50)
     assert (df["field_id"] == 7).all()
 
 
@@ -87,16 +87,16 @@ def test_masked_pixel_produces_no_row_and_never_a_zero(cube, tmp_path):
 
     df = melt_cube(cube)
 
-    assert len(df) == 23, "masked pixel should drop a row, not zero-fill it"
-    assert not (df["value"] == 0).any(), "a masked pixel became a zero"
+    assert len(df) == 8, "the row survives; only the masked index goes null"
+    assert not (df["ndvi"] == 0).any(), "a masked pixel became a zero"
 
     masked_zone = melt.zone_id_from_xy(ORIGIN_X + 1.5 * GRID, ORIGIN_Y - 1.5 * GRID)
-    gone = df[(df["zone_id"] == masked_zone) & (df["date"] == "2020-06-01")
-              & (df["index"] == "ndvi")]
-    assert len(gone) == 0
+    row = df[(df["zone_id"] == masked_zone) & (df["date"] == "2020-06-01")]
+    assert len(row) == 1
+    assert pd.isna(row["ndvi"].iloc[0]), "a masked index must be null, never zero"
     # The other indices on that same date are untouched.
-    others = df[(df["zone_id"] == masked_zone) & (df["date"] == "2020-06-01")]
-    assert set(others["index"]) == {"ndre", "ndwi"}
+    assert row["ndre"].iloc[0] == pytest.approx(0.25)
+    assert row["ndwi"].iloc[0] == pytest.approx(0.25)
 
 
 def test_subpixel_count_below_minimum_produces_no_row(cube):
@@ -106,8 +106,8 @@ def test_subpixel_count_below_minimum_produces_no_row(cube):
 
     df = melt_cube(cube, min_valid=5)
 
-    # One zone-date drops for every index, because the mask is shared.
-    assert len(df) == 21
+    # The whole zone-date drops, because the mask is shared across indices.
+    assert len(df) == 7
     assert df["n_valid"].min() >= 5
 
 
@@ -118,7 +118,7 @@ def test_pixel_outside_any_field_produces_no_row(cube):
 
     df = melt_cube(cube)
 
-    assert len(df) == 18  # one zone gone on both dates, all three indices
+    assert len(df) == 6  # one zone gone on both dates
     assert (df["field_id"] == 7).all()
 
 
@@ -197,5 +197,26 @@ def test_non_positive_field_id_produces_no_row(cube):
 
     df = melt_cube(cube)
 
-    assert len(df) == 12, "two zones should drop across both dates and all indices"
+    assert len(df) == 4, "two zones should drop across both dates"
     assert (df["field_id"] > 0).all()
+
+
+def test_streaming_to_parquet_matches_the_in_memory_result(cube, tmp_path):
+    """The streaming path and the in-memory path must agree exactly.
+
+    Streaming exists because a season of real data does not fit in memory as
+    long rows. If the two paths could drift, the tested one would not be the
+    one that runs in production.
+    """
+    out = tmp_path / "season.parquet"
+    written = melt.melt_cube_to_parquet(
+        value_path=cube["value"], count_path=cube["count"],
+        field_path=cube["field"], year=2020, out_path=out,
+    )
+    assert out.exists()
+
+    streamed = pd.read_parquet(out).sort_values(["zone_id", "date"]).reset_index(drop=True)
+    in_memory = melt_cube(cube).sort_values(["zone_id", "date"]).reset_index(drop=True)
+
+    assert written == len(in_memory)
+    pd.testing.assert_frame_equal(streamed, in_memory, check_dtype=False)
