@@ -196,6 +196,235 @@ Median NDVI by season ranges from 0.590 to 0.790. This is interannual variation 
 
 **Storage.** 1.65 GB of Parquet and a 7.4 MB database, because `zone_obs` is a view over the Parquet rather than a copy of it. The database is 0.4% of the data it indexes.
 
-## Step 1 onward
+## Step 2: phenology inputs
 
-`[TBD]`. Zone size comparison at 10m against 30m not yet measured. Step 2, the phenology-aligned within-field baseline, not started.
+### Weather
+
+Open-Meteo archive, daily 2m maximum and minimum temperature at the AOI centroid (42.0482 N, 93.5394 W), 2018 to 2025. 2,922 days, none missing. Frozen in `orbitalscout/frozen/weather_daily.csv` so the baseline rebuilds without network access and is unaffected by later reanalysis revisions.
+
+As a sanity range only, corn GDD from a fixed 1 May origin to 30 September runs from 2,980 (2020) to 3,234 (2021). The baseline does not use a fixed origin.
+
+### GDD origin: USDA NASS 50% planted date
+
+Interpolated from NASS Crop Progress weekly cumulative percent planted, state of Iowa. Raw weekly series frozen in `orbitalscout/frozen/nass_planting_progress.csv` (165 rows), derived dates in `orbitalscout/frozen/planting_dates.csv`.
+
+| year | corn | soybean |
+|---|---|---|
+| 2018 | 2018-05-08 | 2018-05-17 |
+| 2019 | 2019-05-12 | **2019-06-04** |
+| 2020 | 2020-04-27 | 2020-05-04 |
+| 2021 | 2021-04-29 | 2021-05-04 |
+| 2022 | 2022-05-13 | 2022-05-18 |
+| 2023 | 2023-05-03 | 2023-05-07 |
+| 2024 | 2024-05-07 | 2024-05-15 |
+| 2025 | 2025-05-04 | 2025-05-07 |
+
+Corn spans 16 days across the eight years and soybean spans 31. Soybean follows corn in every year. 2019 soybean is the record-late wet spring and is the case a fixed calendar origin would have handled worst: a 1 May start would have credited more than a month of pre-planting heat to that crop-year.
+
+No week in any series was reported twice with conflicting values.
+
+### Parameter evidence: cloud threshold and bin width
+
+Run with `python scripts/step2_measure.py` on 2026-09-17. Coverage uses a deterministic 5% sample of zones (hash of zone id), 34,973 zones and 7,051,748 observations; clear fraction is always computed over every zone in a field.
+
+**Do partially clouded field-dates read differently?** NDVI on the date minus the same field's NDVI on fully clear (99% or more) dates at the same growth stage, same year. Stage bucket of 200 GDD, used for this diagnostic only.
+
+| field clear | observations | median difference | p25 | p75 |
+|---|---|---|---|---|
+| 0 to 10% | 15,045 | -0.0104 | -0.0607 | 0.0268 |
+| 10 to 25% | 40,284 | -0.0046 | -0.0477 | 0.0300 |
+| 25 to 50% | 109,179 | 0.0004 | -0.0389 | 0.0345 |
+| 50 to 75% | 187,169 | 0.0020 | -0.0349 | 0.0359 |
+| 75 to 90% | 205,108 | 0.0020 | -0.0346 | 0.0356 |
+| 90 to 99% | 278,814 | 0.0030 | -0.0332 | 0.0373 |
+| 99 to 100% | 5,868,151 | 0.0013 | -0.0247 | 0.0242 |
+
+Above 25% clear the median difference is indistinguishable from zero. Below 25% there is a small low bias, largest under 10%, consistent with missed cloud edge or haze. The narrower spread in the fully clear band is partly an artifact: that band is compared against a reference it contributes to.
+
+**Bin coverage**, share of zone-year-bins holding at least one observation, over every bin from planting to 30 September:
+
+| width (GDD) | no threshold | clear >= 50% | clear >= 90% | clear >= 99% |
+|---|---|---|---|---|
+| 150 | 74.2% | 72.8% | 69.3% | 66.5% |
+| 200 | 83.6% | 82.4% | 79.4% | 76.9% |
+| 250 | 88.4% | 87.4% | 84.6% | 82.4% |
+| 300 | 91.1% | 90.3% | 88.1% | 86.1% |
+
+**The rule fixed in SPEC Section 8 before binning, the narrowest width reaching 90%, selects 300 GDD, and only at a cloud threshold of 50% or below. Under stricter thresholds no candidate reaches 90%.**
+
+**Where the shortfall sits**, at 200 GDD with no threshold:
+
+| bin | GDD | coverage |
+|---|---|---|
+| 0 | 0 to 200 | 92.6% |
+| 1 | 200 to 400 | 88.4% |
+| 2 | 400 to 600 | 79.2% |
+| 3 | 600 to 800 | 77.0% |
+| 4 | 800 to 1000 | 84.9% |
+| 5 | 1000 to 1200 | 80.9% |
+| 6 | 1200 to 1400 | 92.2% |
+| 7 | 1400 to 1600 | 89.4% |
+| 8 | 1600 to 1800 | 84.3% |
+| 9 | 1800 to 2000 | 80.0% |
+| 10 | 2000 to 2200 | 91.8% |
+| 11 | 2200 to 2400 | 84.5% |
+| 12 | 2400 to 2600 | 84.3% |
+| 13 to 16 | 2600 and above | partial last bin for some crop-years |
+
+Excluding bins that are ever a partial last bin raises coverage only from 83.6% to 85.3%. The shortfall is therefore genuine sparsity rather than a counting artifact at the season edges, and it is concentrated at 400 to 800 GDD, late May into June, which is Iowa's cloudiest part of the season. The bin immediately after planting is well observed at 92.6%.
+
+**Neither parameter has been chosen.** The pre-stated coverage rule points at the width that the Step 2 decision record named as too coarse to resolve growth stages, so this goes back for an explicit decision rather than a quiet relaxation of the rule.
+
+### Parameters chosen
+
+Cloud threshold 50%, bin width 200 GDD, prior-year floor 3. Reasoning in `docs/reviews/2026-09-17-step2-decisions.md`, amendment Decisions 5 and 6.
+
+### Baseline built on real data
+
+Run with `python scripts/build_baseline.py` on 2026-09-17. Field medians computed once over all zones (725,484 field-dates), then the windowed baseline over ten deterministic chunks of zones reusing them. **71,345,419 zone-year-bin cells**, about 4.2 GB of Parquet in `data/baseline/`.
+
+### Reporting owed by Step 2
+
+**1. Bin coverage the retired rule would have scored.** At 200 GDD and a 50% clear threshold: **82.4%**, from the 5% zone sample in `scripts/step2_measure.py`. Below the retired rule's 90%, as recorded when that rule was retired.
+
+**2. Prior-year support in the held-out years, and the gate.**
+
+| year | cells | 0 | 1 | 2 | 3 | 4 | 5+ | excluded by floor of 3 |
+|---|---|---|---|---|---|---|---|---|
+| 2023 | 9,805,464 | 0.2% | 1.6% | 10.1% | 28.1% | 36.0% | 24.0% | **12.0%** |
+| 2024 | 9,729,563 | 0.0% | 0.3% | 1.9% | 11.5% | 28.8% | 57.5% | 2.2% |
+| 2025 | 8,745,086 | 0.0% | 0.0% | 0.2% | 1.8% | 11.0% | 86.9% | 0.2% |
+
+Excluded share by year and bin:
+
+| bin | GDD | 2023 | 2024 | 2025 |
+|---|---|---|---|---|
+| 0 | 0 to 200 | 1.0% | 0.2% | 0.0% |
+| 1 | 200 to 400 | 7.5% | 3.4% | 0.3% |
+| 2 | 400 to 600 | 6.8% | 1.1% | 0.0% |
+| 3 | 600 to 800 | 0.5% | 0.2% | 0.0% |
+| 4 | 800 to 1000 | 0.9% | 0.0% | 0.0% |
+| 5 | 1000 to 1200 | 7.2% | 4.2% | 0.3% |
+| 6 | 1200 to 1400 | 0.1% | 0.0% | 0.0% |
+| 7 | 1400 to 1600 | 1.0% | 0.0% | 0.0% |
+| 8 | 1600 to 1800 | 8.5% | 2.7% | 0.1% |
+| 9 | 1800 to 2000 | 11.7% | 4.6% | 1.5% |
+| 10 | 2000 to 2200 | 0.1% | 1.0% | 0.1% |
+| 11 | 2200 to 2400 | **31.1%** | 4.1% | 0.1% |
+| 12 | 2400 to 2600 | **30.4%** | 1.0% | 0.0% |
+| 13 | 2600 to 2800 | **54.9%** | 8.5% | 3.4% |
+| 14 | 2800 to 3000 | 4.4% | 0.7% | 0.0% |
+| 15 | 3000 to 3200 | **100.0%** (68,908 cells) | none | none |
+
+**The gate tripped.** The floor was allowed to exclude at most a fifth of cells anywhere. It exceeds that in four places, all in 2023 and all late season: bins 11, 12, 13 and 15. Items 3 to 5 of the reporting owed were not run, because the gate is a stop condition.
+
+**Cause, measured from the weather and planting tables rather than inferred.** Two earlier decisions interact with 2023 having only five prior years.
+
+The derecho exclusion (Decision 2) removes 2020 from exactly the late bins. 2020 corn entered bin 11 on 15 August and soybean on 19 August, both after the 10 August storm. For 2023 that leaves at most four usable prior years in bins 11 to 14, so a floor of three requires three of four to be observed, and late-season cloud misses enough to exclude roughly a third of cells. 2024 and 2025 keep five and six usable prior years in the same bins and pass.
+
+| bin | GDD | corn prior years usable for 2023 | soybean prior years usable for 2023 |
+|---|---|---|---|
+| 9 | 1800 to 2000 | 5 of 5 | 5 of 5 |
+| 10 | 2000 to 2200 | 5 of 5 | 4 of 5 |
+| 11 to 13 | 2200 to 2800 | 4 of 5 | 4 of 5 |
+| 14 | 2800 to 3000 | 4 of 5 | 3 of 5 |
+| 15 | 3000 to 3200 | 2 of 5 | 1 of 5 |
+
+Bin 15 cannot pass by construction: only one or two of the prior crop-years accumulate 3,000 GDD before 30 September, so a floor of three is unreachable regardless of cloud. It is a season-edge artifact, 1% of 2023's cells.
+
+**Why this is consequential rather than cosmetic.** The primary label is the end-of-season residual, which lives in the late bins. For the 2023 holdout, the cells the label depends on are the ones with the thinnest support. This is a decision for the evaluation, not a baseline bug, and it is recorded here before any label or evaluation number exists.
+
+### Label, feature, and the re-specified gate
+
+Following the second Step 2 amendment (Decisions 7 to 9): the label is the mean NDVI residual over supported cells in bins 8 to 11 (R2 to R5, grain fill) against the leave-one-year-out baseline; the feature is the NDVI residual in the latest supported cell in bins 0 to 6 (emergence to VT) against the strictly prior baseline. Run with `python scripts/build_baseline.py --outcomes` on 2026-09-17.
+
+The cell-level gate above measured an intermediate. Decision 9 re-specified it at the granularity of what it protects: in each held-out year, at most 20% of eligible zone-years may lack a label, and at most 20% may lack a feature. Written before the number existed.
+
+| year | eligible zone-years | no label | no feature | ineligible (field grew another crop) |
+|---|---|---|---|---|
+| 2023 | 699,460 | 0.1% | 0.0% | 2,132 |
+| 2024 | 696,733 | 0.0% | 0.0% | 4,859 |
+| 2025 | 692,347 | 0.0% | 0.0% | 9,245 |
+
+**Gate passed.**
+
+Label cells used per labelled zone-year, out of a possible four:
+
+| year | 1 cell | 2 cells | 3 cells | 4 cells |
+|---|---|---|---|---|
+| 2023 | 3.2% | 7.8% | 40.9% | 48.1% |
+| 2024 | 0.2% | 1.7% | 18.2% | 80.0% |
+| 2025 | 0.1% | 4.6% | 32.3% | 63.1% |
+
+2023 remains the most thinly supported held-out year, as the cell-level result predicted, but 89% of its labels rest on three or four cells.
+
+Bin the feature came from:
+
+| year | bin 4 | bin 5 | bin 6 |
+|---|---|---|---|
+| 2023 | 0.0% | 0.0% | 100.0% |
+| 2024 | 1.1% | 4.9% | 94.1% |
+| 2025 | 0.0% | 0.0% | 100.0% |
+
+**The rung 1 feature is in practice a late-vegetative snapshot**, taken at 1,200 to 1,400 GDD just before tassel, rather than an early-season reading. That follows from "latest supported cell" and is consistent with the design, but it bounds what the claim can be: the ranking uses the canopy's standing at the end of vegetative growth, not at emergence. It is also the baseline against which the Step 5 velocity signal, which uses earlier bins, must show added value.
+
+### Diagnostics
+
+Run with `python scripts/step2_diagnostics.py` on 2026-09-17. Reported, not gating.
+
+**3. Derecho sensitivity.** Everything rebuilt with the known-event exclusion switched off, then compared.
+
+| compared | cells or zone-years | mean abs diff | median | p90 | max |
+|---|---|---|---|---|---|
+| feature baseline cells, bins 10+, years other than 2020 (10% of zones) | 1,700,675 | 0.0082 | 0.0023 | 0.0226 | 0.4213 |
+| label baseline cells, bins 10+, years other than 2020 (10% of zones) | 2,092,083 | 0.0049 | 0.0019 | 0.0135 | 0.2618 |
+| labels, held-out years | 2,088,039 | 0.0015 | | 0.0035 | |
+| labels, other years | 2,793,668 | 0.0012 | | 0.0030 | |
+
+Bottom-decile membership within field-year flips for **1.36%** of held-out zone-years and 0.95% of others. The exclusion is small in aggregate and large for individual cells, up to 0.42 NDVI in the feature baseline: the signature of a targeted correction that leaves most zones alone and changes the lodged ones. The feature is unaffected by construction, because its bins, 0 to 6, all precede 10 August 2020.
+
+**4. Corn versus soybean relative standing.** Per zone, mean relative NDVI over bins 0 to 11 in its corn years and in its soybean years, correlated across zones. The reference is the same statistic between the earlier and later half of a zone's own years of one crop.
+
+| pair | zones | Pearson | Spearman |
+|---|---|---|---|
+| corn years vs soybean years | 695,433 | 0.539 | 0.460 |
+| reference: earlier vs later corn years | 700,795 | 0.651 | 0.572 |
+| reference: earlier vs later soybean years | 640,391 | 0.537 | 0.546 |
+
+The raw figures are not directly comparable. The cross-crop correlation uses all of a zone's years on each side, while each reference splits one crop's years in half and so rests on fewer. Correcting the references to full length with the Spearman-Brown formula, 2r / (1 + r), gives reliabilities of 0.789 for corn and 0.699 for soybean. Dividing the cross-crop correlation by the square root of their product gives a **disattenuated cross-crop correlation of 0.726**, so about **53%** of a zone's stable relative standing is shared between its corn and soybean years and the remainder is crop-specific.
+
+Two caveats. The earlier-versus-later split also absorbs genuine change in a zone over eight years, which lowers the reference and makes the correction slightly generous. And the correction assumes the halves are parallel measurements, which a corn-soybean rotation only approximates.
+
+This is a partial zone-by-crop interaction, not a negligible one. It does not change the Step 2 baseline, which pools crops by design, but it strengthens the case for the crop-stratified S1 variant already scheduled as an ablation (issue #4), and the two mechanisms named there, soybean iron deficiency chlorosis on the calcareous soils of the Des Moines Lobe and droughty patches penalising corn more than soybean, are plausible sources.
+
+**5. Green-up spread around the NASS anchor.** Per field-year, the first date the field-median NDVI reaches its seasonal minimum plus half its amplitude, using field-dates at least 50% clear and including dates before planting so the curve has a floor. Days after the NASS 50% planted date.
+
+| crop | identifiable field-years | p10 | median | p90 | interquartile range |
+|---|---|---|---|---|---|
+| corn | 14,317 | 37 | 47 | 59 | 11 days |
+| soybean | 10,732 | 40 | 52 | 63 | 15 days |
+
+Unidentifiable field-years, where the first clear reading was already past the level, run from 0.0% to 3.0% by crop-year. Per-year quantiles fall on acquisition dates, so they move in steps of a few days.
+
+Half-amplitude green-up corresponds to mid-canopy development, and a median of 47 days after 50% planting is consistent with that for corn. The interquartile ranges of 11 and 15 days are roughly one 200 GDD bin in midsummer. Field-to-field planting variation within a year is a field-year constant that the within-field baseline cancels, so this spread matters only for cross-year bin alignment, where it amounts to about one bin of misalignment for the middle half of field-years. Recorded as the size of the anchor's limitation rather than as grounds to change it.
+
+**6. Zone size, 10m against 30m.** Issue #7. Metric and prior expectation were committed before any 10m pixel was exported (`scripts/zone_size_export.py`, commit c74bef5). Fifty fields: one chosen with the project seed plus its 49 nearest neighbours, a 16.3 km2 box, frozen in `orbitalscout/frozen/zone_size_sample.csv`. The architecture note asked for a scattered random sample; an Earth Engine export is rectangular, so scattered fields would have meant a county-sized 10m box, roughly 1.5 GB per season. Noise and co-registration jitter are not organised at county scale, so a compact block samples them fairly, but the deviation is recorded.
+
+Both resolutions run through the same production baseline views. Per zone and year, the mean within-field relative NDVI over the label window; per zone, the standard deviation of that across years, zones with at least three years.
+
+| zone size | zones | median SD | p25 | p75 |
+|---|---|---|---|---|
+| 10m | 59,327 | 0.0125 | 0.0072 | 0.0253 |
+| 30m | 7,469 | 0.0128 | 0.0071 | 0.0257 |
+
+Ratio of median SD, 10m over 30m: **0.98**.
+
+**The prior expectation is not supported.** Issue #7 predicted 30m would show clearly lower year-over-year variation because averaging nine pixels suppresses sensor noise and roughly one pixel of co-registration jitter. The two are indistinguishable, and 10m is marginally lower.
+
+The honest reading is that year-over-year variation in this quantity is not dominated by independent per-pixel noise, so aggregating nine pixels does not reduce it. Two caveats bound the claim. The metric averages over four bins and several dates before the standard deviation is taken, so per-date pixel noise is already largely averaged out on both sides; this is a fair measure of the stability of the label-window quantity, which is what the evaluation uses, but it is not a sensitive test of jitter itself, which a single-date comparison would be. And the two sides apply their minimum-valid rule at different scales: a 30m zone-date needs five of nine sub-pixels clear, while a 10m pixel-date needs only itself, so the 30m side discards partly clouded dates the 10m side keeps.
+
+**The zone size does not change.** 30m rested on three arguments. Volume: 10m over the full AOI is about 1.6 billion rows against a single-digit GB storage claim, which stands and is decisive. Native resolution: red edge and SWIR are 20m on Sentinel-2, so a 10m NDRE or NDWI zone interpolates, which stands. Noise and jitter: **not supported by this measurement**, and that argument should not be repeated in the write-up.
+
+## Step 2 onward
+
+`[TBD]`. Step 3, signal S1 alone, not started.

@@ -220,3 +220,32 @@ def test_streaming_to_parquet_matches_the_in_memory_result(cube, tmp_path):
 
     assert written == len(in_memory)
     pd.testing.assert_frame_equal(streamed, in_memory, check_dtype=False)
+
+
+def test_a_finer_grid_gives_every_pixel_its_own_zone(tmp_path):
+    """melt packs pixels into zone ids on a grid. Fed 10m data with the 30m
+    default, nine different pixels would silently share one zone id, so a
+    10m-versus-30m comparison would quietly measure 30m against 30m."""
+    fine = 10
+    dates = ["20200601"]
+    bands = [f"{ix}_{d}" for ix in ("ndvi", "ndre", "ndwi") for d in dates]
+    shape = (3, 3)
+    transform = Affine(fine, 0.0, ORIGIN_X, 0.0, -fine, ORIGIN_Y)
+
+    def write(path, array, names, dtype="int16"):
+        with rasterio.open(path, "w", driver="GTiff", height=shape[0], width=shape[1],
+                           count=array.shape[0], dtype=dtype, crs="EPSG:5070",
+                           transform=transform, nodata=NODATA) as dst:
+            dst.write(array)
+            for i, name in enumerate(names or [], start=1):
+                dst.set_band_description(i, name)
+
+    v, c, f = tmp_path / "v.tif", tmp_path / "c.tif", tmp_path / "f.tif"
+    write(v, np.full((3, *shape), 2500, dtype="int16"), bands)
+    write(c, np.full((1, *shape), 1, dtype="int16"), [f"count_{d}" for d in dates])
+    write(f, np.full((1, *shape), 7, dtype="int32"), None, dtype="int32")
+
+    df = melt.melt_cube(value_path=v, count_path=c, field_path=f, year=2020,
+                        min_valid=1, grid=fine)
+    assert len(df) == 9
+    assert df["zone_id"].nunique() == 9

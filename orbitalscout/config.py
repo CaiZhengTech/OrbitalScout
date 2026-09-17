@@ -103,3 +103,52 @@ NATIVE_SIZE_M = 10
 # unless asked, which would make a cloudy day indistinguishable from a reading
 # of zero greenness. Outside the range of any scaled index or sub-pixel count.
 NODATA = -32768
+
+# Windows excluded from baseline estimation, because the signal inside them is
+# a different physical process from the one the baseline is meant to capture.
+# Knowledge as data (D4): adding an event is adding a row, never a branch on a
+# year. Applied to the feature baseline and the leave-one-year-out label
+# baseline alike; observations are still ingested and still available to the
+# qualitative case study in SPEC Section 10.
+KNOWN_EVENTS = (
+    # name, start (inclusive), end (inclusive), why
+    ("derecho_2020", "2020-08-10", "2020-12-31",
+     "Regional wind damage. Lodging is uneven inside a field, so within-field "
+     "relativity does not cancel it, and 2020 sits in the baseline window of "
+     "every held-out year."),
+)
+
+# Open-Meteo archive, daily 2m max and min temperature. One series at the AOI
+# centroid rather than per field: the temperature field varies by a fraction of
+# a degree across a 30 km AOI, and any field-to-field difference is a
+# field-year constant that the within-field baseline cancels.
+WEATHER_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
+
+# A field-date is used only if at least this share of the field's zones is
+# clear. The field median is taken over visible zones and cloud is contiguous,
+# so below half the field the "centre" describes a patch, not the field.
+# Step 2 amendment, Decision 5.
+MIN_FIELD_CLEAR_FRAC = 0.50
+
+# Phenology bin width, chosen for stage resolution: four bins across emergence
+# to canopy closure, where relative standing changes fastest. Step 2
+# amendment, Decision 6, which retires the earlier coverage rule.
+BIN_WIDTH_GDD = 200
+
+# A baseline cell resting on fewer prior years than this is not labelled or
+# ranked. Enforced where the baseline is consumed, not inside the baseline
+# view, so the raw count stays inspectable. Decision 6.
+MIN_PRIOR_YEARS = 3
+
+# Growth-stage windows, as inclusive bin ranges at BIN_WIDTH_GDD. Anchored to
+# Abendroth et al. 2011, Corn Growth and Development, ISU Extension PMR 1009,
+# for a 2,700 GDD hybrid. Step 2 second amendment, Decision 7.
+#   feature: emergence through VT, what an in-season scout can act on
+#   gap:     R1 silking, the SPEC Section 10 temporal gap
+#   label:   R2 through R5, grain fill. Senescence is left out because a low
+#            reading there is confounded between stress and early maturity.
+# The feature window must end before the gap and the label window start after
+# it, so the feature never sees the label window. A test asserts this.
+FEATURE_BINS = (0, 6)
+GAP_BINS = (7, 7)
+LABEL_BINS = (8, 11)

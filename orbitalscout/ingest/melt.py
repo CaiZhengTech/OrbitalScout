@@ -91,7 +91,7 @@ def _wide_columns(index_names):
 
 
 def _iter_date_frames(values, counts, fields, value_bands, count_by_date, year,
-                      min_valid, index_names):
+                      min_valid, index_names, grid=ZONE_GRID_M):
     """One wide frame per acquisition date, so nothing holds a whole season.
 
     A season of real data is roughly 26 million rows in long form, which does
@@ -105,7 +105,7 @@ def _iter_date_frames(values, counts, fields, value_bands, count_by_date, year,
     col_idx, row_idx = np.meshgrid(np.arange(cols), np.arange(rows))
     xs, ys = values.xy(row_idx.ravel(), col_idx.ravel())  # pixel centres
     zone_ids = np.array(
-        [zone_id_from_xy(x, y) for x, y in zip(xs, ys)], dtype="int64"
+        [zone_id_from_xy(x, y, grid) for x, y in zip(xs, ys)], dtype="int64"
     ).reshape(rows, cols)
 
     # Field indices start at 1. Earth Engine fills the gap between the export
@@ -163,7 +163,7 @@ def _prepare(values, counts, fields, value_path, count_path):
     return value_bands, count_by_date, index_names
 
 
-def melt_cube(value_path, count_path, field_path, year, min_valid=5):
+def melt_cube(value_path, count_path, field_path, year, min_valid=5, grid=ZONE_GRID_M):
     """Melt one season cube to wide rows, held in memory.
 
     The value cube carries every index, in bands named "<index>_<YYYYMMDD>".
@@ -177,6 +177,9 @@ def melt_cube(value_path, count_path, field_path, year, min_valid=5):
     all is absent entirely.
 
     Use melt_cube_to_parquet for a real season; this holds the result.
+
+    `grid` is the zone size in metres used to pack pixels into zone ids. It
+    must match the raster's pixel size, or several pixels silently share one id.
     """
     with _open_checked(value_path) as values,          _open_checked(count_path) as counts,          _open_checked(field_path) as fields:
         value_bands, count_by_date, index_names = _prepare(
@@ -184,7 +187,7 @@ def melt_cube(value_path, count_path, field_path, year, min_valid=5):
         )
         frames = list(_iter_date_frames(
             values, counts, fields, value_bands, count_by_date, year,
-            min_valid, index_names
+            min_valid, index_names, grid
         ))
 
     if not frames:
@@ -193,7 +196,7 @@ def melt_cube(value_path, count_path, field_path, year, min_valid=5):
 
 
 def melt_cube_to_parquet(value_path, count_path, field_path, year, out_path,
-                         min_valid=5):
+                         min_valid=5, grid=ZONE_GRID_M):
     """Same reshape, streamed one date at a time to a Parquet file.
 
     Returns the number of rows written. DuckDB reads the result directly,
@@ -208,7 +211,7 @@ def melt_cube_to_parquet(value_path, count_path, field_path, year, out_path,
             )
             for frame in _iter_date_frames(
                 values, counts, fields, value_bands, count_by_date, year,
-                min_valid, index_names
+                min_valid, index_names, grid
             ):
                 table = pa.Table.from_pandas(frame, preserve_index=False)
                 if writer is None:
