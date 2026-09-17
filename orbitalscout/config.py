@@ -139,3 +139,16 @@ BIN_WIDTH_GDD = 200
 # ranked. Enforced where the baseline is consumed, not inside the baseline
 # view, so the raw count stays inspectable. Decision 6.
 MIN_PRIOR_YEARS = 3
+
+# Growth-stage windows, as inclusive bin ranges at BIN_WIDTH_GDD. Anchored to
+# Abendroth et al. 2011, Corn Growth and Development, ISU Extension PMR 1009,
+# for a 2,700 GDD hybrid. Step 2 second amendment, Decision 7.
+#   feature: emergence through VT, what an in-season scout can act on
+#   gap:     R1 silking, the SPEC Section 10 temporal gap
+#   label:   R2 through R5, grain fill. Senescence is left out because a low
+#            reading there is confounded between stress and early maturity.
+# The feature window must end before the gap and the label window start after
+# it, so the feature never sees the label window. A test asserts this.
+FEATURE_BINS = (0, 6)
+GAP_BINS = (7, 7)
+LABEL_BINS = (8, 11)

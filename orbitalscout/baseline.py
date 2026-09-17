@@ -141,6 +141,40 @@ def _zone_views(con, min_field_clear_frac):
             )
         )
     """)
+    _label_baseline_view(con)
+
+
+def _label_baseline_view(con):
+    """Leave-one-year-out baseline for the label. SPEC Section 10.
+
+    Every other year in the record, earlier and later, minus the target year.
+    Computed as the partition total less the target year's own contribution,
+    so a year can never appear in its own label baseline. Built separately
+    from `baseline` so that the feature and the label never share one
+    estimated baseline and its error.
+    """
+    first = INDICES[0]
+    loo = ", ".join(
+        f"(sum(rel_{n}_clean) OVER z - coalesce(rel_{n}_clean, 0)) / "
+        f"nullif(count(rel_{n}_clean) OVER z - (rel_{n}_clean IS NOT NULL)::INT, 0) "
+        f"AS label_baseline_{n}"
+        for n in INDICES
+    )
+    residuals = ", ".join(f"rel_{n} - label_baseline_{n} AS label_residual_{n}" for n in INDICES)
+    rels = ", ".join(f"rel_{n}" for n in INDICES)
+    baselines = ", ".join(f"label_baseline_{n}" for n in INDICES)
+    con.execute(f"""
+        CREATE OR REPLACE VIEW label_baseline AS
+        SELECT zone_id, field_id, year, bin, cdl_code, n_obs, {rels}, {baselines},
+               n_label_years, {residuals}
+        FROM (
+            SELECT *, {loo},
+                   count(rel_{first}_clean) OVER z
+                     - (rel_{first}_clean IS NOT NULL)::INT AS n_label_years
+            FROM zone_year_bin
+            WINDOW z AS (PARTITION BY zone_id, bin)
+        )
+    """)
 
 
 def supported_view(con, min_prior_years=config.MIN_PRIOR_YEARS):
@@ -151,7 +185,45 @@ def supported_view(con, min_prior_years=config.MIN_PRIOR_YEARS):
     of every cell, including the ones excluded, stays inspectable. Without that,
     the share of cells the floor removes could not be reported.
     """
+    floor = int(min_prior_years)
     con.execute(f"""
         CREATE OR REPLACE VIEW supported_baseline AS
-        SELECT * FROM baseline WHERE n_prior_years >= {int(min_prior_years)}
+        SELECT * FROM baseline WHERE n_prior_years >= {floor}
+    """)
+    con.execute(f"""
+        CREATE OR REPLACE VIEW supported_label_baseline AS
+        SELECT * FROM label_baseline WHERE n_label_years >= {floor}
+    """)
+
+
+def outcome_views(con, min_prior_years=config.MIN_PRIOR_YEARS,
+                  feature_bins=config.FEATURE_BINS, label_bins=config.LABEL_BINS):
+    """One label and one feature per zone-year. Step 2 second amendment, Decision 7.
+
+    zone_year_label: mean NDVI residual over supported cells in the label window,
+        against the leave-one-year-out baseline, with the number of cells used.
+    zone_year_feature: NDVI residual in the latest supported cell in the feature
+        window, against the strictly prior baseline, with the bin it came from.
+
+    A zone-year with no supported cell in a window has no row, which is what the
+    Decision 9 gate counts.
+    """
+    floor = int(min_prior_years)
+    label_lo, label_hi = (int(b) for b in label_bins)
+    feat_lo, feat_hi = (int(b) for b in feature_bins)
+    con.execute(f"""
+        CREATE OR REPLACE VIEW zone_year_label AS
+        SELECT zone_id, field_id, year, any_value(cdl_code) AS cdl_code,
+               avg(label_residual_ndvi) AS label_ndvi, count(*) AS n_label_cells
+        FROM label_baseline
+        WHERE bin BETWEEN {label_lo} AND {label_hi} AND n_label_years >= {floor}
+        GROUP BY zone_id, field_id, year
+    """)
+    con.execute(f"""
+        CREATE OR REPLACE VIEW zone_year_feature AS
+        SELECT zone_id, field_id, year, any_value(cdl_code) AS cdl_code,
+               arg_max(residual_ndvi, bin) AS feature_ndvi, max(bin) AS feature_bin
+        FROM baseline
+        WHERE bin BETWEEN {feat_lo} AND {feat_hi} AND n_prior_years >= {floor}
+        GROUP BY zone_id, field_id, year
     """)

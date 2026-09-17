@@ -257,3 +257,110 @@ def test_precomputed_field_stats_give_the_same_residuals(tmp_path):
     ).fetchall()
     assert got == [row for row in expected if row[0] == 101]
     assert got[0][2] == pytest.approx(-0.1), "median must come from all zones, not the chunk"
+
+
+# ---- Second amendment: leave-one-year-out label baseline and stage windows ----
+
+def staged_history(values):
+    """Zone 101 by (year, bin); zones 102 and 103 sit at 0.5 so the median is 0.5.
+
+    Zone 101's relative index is therefore exactly its value minus 0.5. Each
+    bin gets its own date so several bins can share a year.
+    """
+    obs, gdd = [], {}
+    for (year, b), value in values.items():
+        date = f"{year}-06-{b + 1:02d}"
+        gdd[date] = b * 200 + 50
+        obs += [(101, 1, year, date, value),
+                (102, 1, year, date, 0.5),
+                (103, 1, year, date, 0.5)]
+    return obs, gdd
+
+
+def label_baseline_for(con, year, b=1):
+    return con.execute(
+        "SELECT label_baseline_ndvi, n_label_years FROM label_baseline "
+        "WHERE zone_id = 101 AND year = ? AND bin = ?", [year, b]
+    ).fetchone()
+
+
+def test_label_baseline_uses_every_other_year_but_never_its_own():
+    """SPEC Section 10: the label baseline excludes the target year only."""
+    obs, gdd = staged_history({(2018, 1): 0.6, (2019, 1): 0.8, (2020, 1): 1.0})
+    con = build(make_con(obs, gdd))            # relative: 0.1, 0.3, 0.5
+
+    value, n = label_baseline_for(con, 2019)
+    assert (value, n) == (pytest.approx(0.3), 2)    # 2018 and 2020, not 2019
+    value, n = label_baseline_for(con, 2018)
+    assert (value, n) == (pytest.approx(0.4), 2)    # 2019 and 2020, including a later year
+
+
+def test_label_residual_is_relative_minus_label_baseline():
+    obs, gdd = staged_history({(2018, 1): 0.6, (2019, 1): 0.8, (2020, 1): 1.0})
+    con = build(make_con(obs, gdd))
+    residual = con.execute(
+        "SELECT label_residual_ndvi FROM label_baseline WHERE zone_id = 101 AND year = 2019 AND bin = 1"
+    ).fetchone()[0]
+    assert residual == pytest.approx(0.3 - 0.3)
+
+
+def test_label_baseline_excludes_known_event_observations_from_other_years():
+    obs, gdd = staged_history({(2018, 1): 0.6, (2019, 1): 0.6})
+    obs += [(101, 1, 2020, "2020-08-15", 0.0), (102, 1, 2020, "2020-08-15", 0.5),
+            (103, 1, 2020, "2020-08-15", 0.5)]
+    gdd["2020-08-15"] = 250                    # bin 1, inside the event window
+    events = (("derecho_2020", "2020-08-10", "2020-12-31", "test"),)
+    con = build(make_con(obs, gdd), events=events)
+
+    value, n = label_baseline_for(con, 2019)
+    assert n == 1, "the event reading must not count as another year"
+    assert value == pytest.approx(0.1)
+
+
+def five_years_then(target_values, constant=0.6, bins=(), years=range(2018, 2022)):
+    values = {(y, b): constant for y in years for b in bins}
+    values.update(target_values)
+    return values
+
+
+def outcomes(con, floor=3):
+    baseline.supported_view(con, min_prior_years=floor)
+    baseline.outcome_views(con, min_prior_years=floor)
+    return con
+
+
+def test_label_is_the_mean_residual_over_supported_cells_in_the_label_window():
+    """Bins 7 and 12 fall outside the window; bin 9 lacks support."""
+    values = five_years_then(
+        {(2022, 7): 0.9, (2022, 8): 0.7, (2022, 11): 0.8, (2022, 12): 0.2,
+         (2021, 9): 0.6, (2022, 9): 0.95},
+        bins=(7, 8, 11, 12),
+    )
+    con = outcomes(build(make_con(*staged_history(values))))
+    label, n = con.execute(
+        "SELECT label_ndvi, n_label_cells FROM zone_year_label WHERE zone_id = 101 AND year = 2022"
+    ).fetchone()
+    assert n == 2
+    assert label == pytest.approx(((0.2 - 0.1) + (0.3 - 0.1)) / 2)
+
+
+def test_feature_is_the_residual_in_the_latest_supported_vegetative_cell():
+    """Bin 6 lacks support and bin 7 is outside the window, so bin 5 is latest."""
+    values = five_years_then(
+        {(2021, 2): 0.9, (2021, 5): 0.7, (2020, 6): 0.6, (2021, 6): 0.95, (2021, 7): 0.99},
+        bins=(2, 5, 7), years=range(2018, 2021),
+    )
+    con = outcomes(build(make_con(*staged_history(values))))
+    feature, feature_bin = con.execute(
+        "SELECT feature_ndvi, feature_bin FROM zone_year_feature WHERE zone_id = 101 AND year = 2021"
+    ).fetchone()
+    assert feature_bin == 5
+    assert feature == pytest.approx(0.2 - 0.1)
+
+
+def test_feature_window_ends_before_the_gap_and_label_window_starts_after_it():
+    """The feature must never see the label window."""
+    from orbitalscout import config
+    assert config.FEATURE_BINS[1] < config.GAP_BINS[0]
+    assert config.GAP_BINS[0] <= config.GAP_BINS[1]
+    assert config.GAP_BINS[1] < config.LABEL_BINS[0]
