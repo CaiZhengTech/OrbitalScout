@@ -12,9 +12,15 @@ per index because the mask is shared, so all three indices see the same valid
 sub-pixels.
 """
 
+import csv
+import json
+import pathlib
+
 import ee
 
 from .. import config
+
+FROZEN = pathlib.Path(__file__).resolve().parents[1] / "frozen"
 
 
 def county_geometry():
@@ -52,22 +58,50 @@ def build_aoi():
     )
 
 
-def frozen_aoi(project):
-    """The AOI as materialised by scripts/freeze_aoi.py.
+def frozen_aoi(project=None):
+    """The AOI as frozen in orbitalscout/frozen/aoi.geojson.
 
     Read rather than recomputed. build_aoi derives the polygon from live
     Sentinel-2 footprints, and a footprint that shifts at the coverage margin
     moves a field in or out; because field numbering is dense and sorted, that
     renumbers every field after it. A raster exported today would then disagree
-    with a lookup table exported tomorrow, with each internally consistent and
+    with a lookup table exported tomorrow, each internally consistent and
     nothing to raise on. DESIGN D18, architecture note Decision 4.
+
+    Frozen to a file in the repository rather than an Earth Engine asset, so
+    anyone who clones gets the identical AOI and field numbering without
+    needing access to one account's assets. `project` is accepted and ignored
+    so callers need not care where the freeze lives.
     """
-    return ee.FeatureCollection(config.AOI_ASSET.format(project=project)).geometry()
+    with open(FROZEN / "aoi.geojson", encoding="utf-8") as handle:
+        return ee.Geometry(json.load(handle))
 
 
-def frozen_fields(project):
-    """The selected fields, already carrying their dense field_idx."""
-    return ee.FeatureCollection(config.FIELDS_ASSET.format(project=project))
+def frozen_field_order():
+    """The frozen field_idx to CSBID mapping, as two aligned lists."""
+    indices, ids = [], []
+    with open(FROZEN / "fields.csv", newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            indices.append(int(row["field_idx"]))
+            ids.append(row["csbid"])
+    return indices, ids
+
+
+def frozen_fields(project=None):
+    """The selected fields, carrying the frozen dense field_idx.
+
+    Rebuilt from the CSB asset by filtering to the frozen id list, so the
+    numbering comes from the repository rather than from whatever order Earth
+    Engine happens to return.
+    """
+    indices, ids = frozen_field_order()
+    lookup = ee.Dictionary.fromLists(ids, indices)
+    collection = ee.FeatureCollection(config.CSB_ASSET).filter(
+        ee.Filter.inList(config.CSB_FIELD_ID, ee.List(ids))
+    )
+    return collection.map(
+        lambda f: f.set("field_idx", lookup.get(f.get(config.CSB_FIELD_ID)))
+    )
 
 
 def selected_fields(aoi):
