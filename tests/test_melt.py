@@ -178,3 +178,24 @@ def test_raster_without_a_nodata_value_raises(cube):
 
     with pytest.raises(ValueError, match="nodata"):
         melt_cube(cube)
+
+
+def test_non_positive_field_id_produces_no_row(cube):
+    """Field indices start at 1, so 0 or negative means no field.
+
+    Earth Engine fills the gap between the export region and the raster's
+    bounding box with 0 rather than with the declared nodata value, so a real
+    export carries two distinct "absent" markers. Honouring only the nodata
+    mask would admit every out-of-region pixel as a genuine observation of
+    zero, which is the same bug as a masked pixel becoming a zero, arriving
+    through a different door.
+    """
+    fields = np.full((1, 2, 2), 7, dtype="int32")
+    fields[0, 0, 0] = 0          # out-of-region fill
+    fields[0, 0, 1] = -1         # defensive: any non-positive id
+    write_raster(cube["field"], fields, dtype="int32")
+
+    df = melt_cube(cube)
+
+    assert len(df) == 12, "two zones should drop across both dates and all indices"
+    assert (df["field_id"] > 0).all()

@@ -123,10 +123,15 @@ def melt_cube(value_path, count_path, field_path, year, min_valid=5):
             value_arr = values.read(band, masked=True)
             count_arr = counts.read(count_by_date[parts["date"]], masked=True)
 
+            # Field indices start at 1. Earth Engine fills the gap between the
+            # export region and the raster bounding box with 0 rather than the
+            # declared nodata, so a real export carries two absent markers and
+            # honouring only the mask would admit every out-of-region pixel.
             keep = (
                 ~np.ma.getmaskarray(value_arr)
                 & ~np.ma.getmaskarray(count_arr)
                 & ~np.ma.getmaskarray(field_arr)
+                & (field_arr.filled(0) > 0)
                 & (count_arr.filled(0) >= min_valid)
             )
             if not keep.any():
