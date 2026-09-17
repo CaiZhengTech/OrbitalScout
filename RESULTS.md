@@ -334,6 +334,40 @@ Bin 15 cannot pass by construction: only one or two of the prior crop-years accu
 
 **Why this is consequential rather than cosmetic.** The primary label is the end-of-season residual, which lives in the late bins. For the 2023 holdout, the cells the label depends on are the ones with the thinnest support. This is a decision for the evaluation, not a baseline bug, and it is recorded here before any label or evaluation number exists.
 
+### Label, feature, and the re-specified gate
+
+Following the second Step 2 amendment (Decisions 7 to 9): the label is the mean NDVI residual over supported cells in bins 8 to 11 (R2 to R5, grain fill) against the leave-one-year-out baseline; the feature is the NDVI residual in the latest supported cell in bins 0 to 6 (emergence to VT) against the strictly prior baseline. Run with `python scripts/build_baseline.py --outcomes` on 2026-09-17.
+
+The cell-level gate above measured an intermediate. Decision 9 re-specified it at the granularity of what it protects: in each held-out year, at most 20% of eligible zone-years may lack a label, and at most 20% may lack a feature. Written before the number existed.
+
+| year | eligible zone-years | no label | no feature | ineligible (field grew another crop) |
+|---|---|---|---|---|
+| 2023 | 699,460 | 0.1% | 0.0% | 2,132 |
+| 2024 | 696,733 | 0.0% | 0.0% | 4,859 |
+| 2025 | 692,347 | 0.0% | 0.0% | 9,245 |
+
+**Gate passed.**
+
+Label cells used per labelled zone-year, out of a possible four:
+
+| year | 1 cell | 2 cells | 3 cells | 4 cells |
+|---|---|---|---|---|
+| 2023 | 3.2% | 7.8% | 40.9% | 48.1% |
+| 2024 | 0.2% | 1.7% | 18.2% | 80.0% |
+| 2025 | 0.1% | 4.6% | 32.3% | 63.1% |
+
+2023 remains the most thinly supported held-out year, as the cell-level result predicted, but 89% of its labels rest on three or four cells.
+
+Bin the feature came from:
+
+| year | bin 4 | bin 5 | bin 6 |
+|---|---|---|---|
+| 2023 | 0.0% | 0.0% | 100.0% |
+| 2024 | 1.1% | 4.9% | 94.1% |
+| 2025 | 0.0% | 0.0% | 100.0% |
+
+**The rung 1 feature is in practice a late-vegetative snapshot**, taken at 1,200 to 1,400 GDD just before tassel, rather than an early-season reading. That follows from "latest supported cell" and is consistent with the design, but it bounds what the claim can be: the ranking uses the canopy's standing at the end of vegetative growth, not at emergence. It is also the baseline against which the Step 5 velocity signal, which uses earlier bins, must show added value.
+
 ## Step 2 onward
 
-`[TBD]`. Stopped at the support gate pending a decision. Not yet run: derecho sensitivity, corn-versus-soybean correlation, green-up spread, 10m against 30m zone size comparison.
+`[TBD]`. Not yet run: derecho sensitivity, corn-versus-soybean correlation, green-up spread, 10m against 30m zone size comparison.

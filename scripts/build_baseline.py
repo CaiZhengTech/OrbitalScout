@@ -12,7 +12,9 @@ the gate: if the floor of MIN_PRIOR_YEARS excludes more than a fifth of cells
 anywhere, Step 2 stops for a decision.
 
 Run:
-    python scripts/build_baseline.py
+    python scripts/build_baseline.py              # baseline chunks, then the cell gate
+    python scripts/build_baseline.py --outcomes   # label and feature per zone-year, then the
+                                                  # Decision 9 gate (reuses the field medians)
 """
 
 import os
@@ -24,7 +26,7 @@ import duckdb
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from orbitalscout import baseline, config  # noqa: E402
+from orbitalscout import baseline, config, crops  # noqa: E402
 from orbitalscout.ingest import weather  # noqa: E402
 
 OUT = pathlib.Path("data/baseline")
@@ -138,7 +140,104 @@ def report_support():
     return 0
 
 
+def build_outcomes():
+    """One label and one feature per zone-year, per chunk, reusing field medians."""
+    stats_path = (OUT / "field_date_stats.parquet").as_posix()
+    if not pathlib.Path(stats_path).exists():
+        raise SystemExit("field medians missing; run the default build first")
+    con = connect()
+    for chunk in range(CHUNKS):
+        t = time.time()
+        zone_obs_view(con, chunk)
+        baseline.build_views(con, config.BIN_WIDTH_GDD, config.MIN_FIELD_CLEAR_FRAC,
+                             field_stats=stats_path)
+        baseline.outcome_views(con)
+        for view, name in (("zone_year_label", "label"), ("zone_year_feature", "feature")):
+            con.execute(f"COPY {view} TO '{(OUT / f'{name}_{chunk:02d}.parquet').as_posix()}' "
+                        "(FORMAT PARQUET)")
+        print(f"outcomes: chunk {chunk + 1}/{CHUNKS}, {time.time() - t:.0f}s", flush=True)
+    con.close()
+
+
+def report_outcome_gate():
+    """Decision 9: share of eligible zone-years with no label, and with no feature.
+
+    Eligible means a zone-year whose field grew a registry crop that year; any
+    other zone-year cannot carry a label by construction and is counted apart.
+    """
+    con = connect()
+    codes = ", ".join(str(c) for c in crops.codes())
+    held = ", ".join(str(y) for y in HELD_OUT)
+    crop_cols = ", ".join(f"crop_{y}" for y in config.YEARS)
+    con.execute(f"""
+        CREATE TEMP TABLE field_crop AS
+        SELECT field_id, CAST(replace(k, 'crop_', '') AS INTEGER) AS year, cdl_code
+        FROM (UNPIVOT fields ON {crop_cols} INTO NAME k VALUE cdl_code)
+    """)
+    con.execute(f"CREATE VIEW lab AS SELECT * FROM read_parquet('{OUT.as_posix()}/label_*.parquet')")
+    con.execute(f"CREATE VIEW fea AS SELECT * FROM read_parquet('{OUT.as_posix()}/feature_*.parquet')")
+
+    print(f"\nDecision 9 gate: at most {GATE_MAX_EXCLUDED:.0%} of eligible zone-years may lack a label,")
+    print("and at most the same may lack a feature, in each held-out year.\n")
+    rows = con.execute(f"""
+        WITH zy AS (
+            SELECT z.zone_id, fc.year, fc.cdl_code
+            FROM zones z JOIN field_crop fc USING (field_id)
+            WHERE fc.year IN ({held})
+        )
+        SELECT zy.year,
+               count(*) FILTER (WHERE zy.cdl_code NOT IN ({codes})) AS ineligible,
+               count(*) FILTER (WHERE zy.cdl_code IN ({codes})) AS eligible,
+               count(l.zone_id) FILTER (WHERE zy.cdl_code IN ({codes})) AS with_label,
+               count(f.zone_id) FILTER (WHERE zy.cdl_code IN ({codes})) AS with_feature
+        FROM zy
+        LEFT JOIN lab l ON l.zone_id = zy.zone_id AND l.year = zy.year
+        LEFT JOIN fea f ON f.zone_id = zy.zone_id AND f.year = zy.year
+        GROUP BY zy.year ORDER BY zy.year
+    """).fetchall()
+
+    print(f"  {'year':>5} {'eligible':>10} {'no label':>9} {'no feature':>11} {'ineligible (other crop)':>24}")
+    tripped = []
+    for year, ineligible, eligible, with_label, with_feature in rows:
+        no_label = 1 - with_label / eligible
+        no_feature = 1 - with_feature / eligible
+        print(f"  {year:>5} {eligible:>10,} {100*no_label:>8.1f}% {100*no_feature:>10.1f}% {ineligible:>24,}")
+        if no_label > GATE_MAX_EXCLUDED:
+            tripped.append(f"{year} no label {100*no_label:.1f}%")
+        if no_feature > GATE_MAX_EXCLUDED:
+            tripped.append(f"{year} no feature {100*no_feature:.1f}%")
+
+    print("\nlabel cells used per labelled zone-year (bins 8 to 11):")
+    for year, *shares in con.execute(f"""
+        SELECT year, avg((n_label_cells = 1)::INT), avg((n_label_cells = 2)::INT),
+               avg((n_label_cells = 3)::INT), avg((n_label_cells = 4)::INT)
+        FROM lab WHERE year IN ({held}) GROUP BY year ORDER BY year
+    """).fetchall():
+        print(f"  {year}: " + "  ".join(f"{k} cell{'s' if k > 1 else ''} {100*v:5.1f}%"
+                                         for k, v in zip(range(1, 5), shares)))
+
+    print("\nbin the feature came from (latest supported vegetative cell):")
+    bin_shares = ", ".join(
+        f"avg((feature_bin = {b})::INT)" for b in range(config.FEATURE_BINS[1] + 1)
+    )
+    for year, *shares in con.execute(f"""
+        SELECT year, {bin_shares}
+        FROM fea WHERE year IN ({held}) GROUP BY year ORDER BY year
+    """).fetchall():
+        print(f"  {year}: " + "  ".join(f"bin {b} {100*v:4.1f}%" for b, v in enumerate(shares)))
+
+    if tripped:
+        print("\nGATE TRIPPED: " + "; ".join(tripped))
+        return 1
+    print("\ngate passed")
+    return 0
+
+
 if __name__ == "__main__":
+    if "--outcomes" in sys.argv:
+        if "--report-only" not in sys.argv:
+            build_outcomes()
+        raise SystemExit(report_outcome_gate())
     if "--report-only" not in sys.argv:
         build()
     raise SystemExit(report_support())
