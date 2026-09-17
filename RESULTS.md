@@ -196,6 +196,33 @@ Median NDVI by season ranges from 0.590 to 0.790. This is interannual variation 
 
 **Storage.** 1.65 GB of Parquet and a 7.4 MB database, because `zone_obs` is a view over the Parquet rather than a copy of it. The database is 0.4% of the data it indexes.
 
-## Step 1 onward
+## Step 2: phenology inputs
 
-`[TBD]`. Zone size comparison at 10m against 30m not yet measured. Step 2, the phenology-aligned within-field baseline, not started.
+### Weather
+
+Open-Meteo archive, daily 2m maximum and minimum temperature at the AOI centroid (42.0482 N, 93.5394 W), 2018 to 2025. 2,922 days, none missing. Frozen in `orbitalscout/frozen/weather_daily.csv` so the baseline rebuilds without network access and is unaffected by later reanalysis revisions.
+
+As a sanity range only, corn GDD from a fixed 1 May origin to 30 September runs from 2,980 (2020) to 3,234 (2021). The baseline does not use a fixed origin.
+
+### GDD origin: USDA NASS 50% planted date
+
+Interpolated from NASS Crop Progress weekly cumulative percent planted, state of Iowa. Raw weekly series frozen in `orbitalscout/frozen/nass_planting_progress.csv` (165 rows), derived dates in `orbitalscout/frozen/planting_dates.csv`.
+
+| year | corn | soybean |
+|---|---|---|
+| 2018 | 2018-05-08 | 2018-05-17 |
+| 2019 | 2019-05-12 | **2019-06-04** |
+| 2020 | 2020-04-27 | 2020-05-04 |
+| 2021 | 2021-04-29 | 2021-05-04 |
+| 2022 | 2022-05-13 | 2022-05-18 |
+| 2023 | 2023-05-03 | 2023-05-07 |
+| 2024 | 2024-05-07 | 2024-05-15 |
+| 2025 | 2025-05-04 | 2025-05-07 |
+
+Corn spans 16 days across the eight years and soybean spans 31. Soybean follows corn in every year. 2019 soybean is the record-late wet spring and is the case a fixed calendar origin would have handled worst: a 1 May start would have credited more than a month of pre-planting heat to that crop-year.
+
+No week in any series was reported twice with conflicting values.
+
+## Step 2 onward
+
+`[TBD]`. Bin width coverage, the within-field baseline, and the 10m against 30m zone size comparison not yet measured.
