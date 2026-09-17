@@ -368,6 +368,46 @@ Bin the feature came from:
 
 **The rung 1 feature is in practice a late-vegetative snapshot**, taken at 1,200 to 1,400 GDD just before tassel, rather than an early-season reading. That follows from "latest supported cell" and is consistent with the design, but it bounds what the claim can be: the ranking uses the canopy's standing at the end of vegetative growth, not at emergence. It is also the baseline against which the Step 5 velocity signal, which uses earlier bins, must show added value.
 
+### Diagnostics
+
+Run with `python scripts/step2_diagnostics.py` on 2026-09-17. Reported, not gating.
+
+**3. Derecho sensitivity.** Everything rebuilt with the known-event exclusion switched off, then compared.
+
+| compared | cells or zone-years | mean abs diff | median | p90 | max |
+|---|---|---|---|---|---|
+| feature baseline cells, bins 10+, years other than 2020 (10% of zones) | 1,700,675 | 0.0082 | 0.0023 | 0.0226 | 0.4213 |
+| label baseline cells, bins 10+, years other than 2020 (10% of zones) | 2,092,083 | 0.0049 | 0.0019 | 0.0135 | 0.2618 |
+| labels, held-out years | 2,088,039 | 0.0015 | | 0.0035 | |
+| labels, other years | 2,793,668 | 0.0012 | | 0.0030 | |
+
+Bottom-decile membership within field-year flips for **1.36%** of held-out zone-years and 0.95% of others. The exclusion is small in aggregate and large for individual cells, up to 0.42 NDVI in the feature baseline: the signature of a targeted correction that leaves most zones alone and changes the lodged ones. The feature is unaffected by construction, because its bins, 0 to 6, all precede 10 August 2020.
+
+**4. Corn versus soybean relative standing.** Per zone, mean relative NDVI over bins 0 to 11 in its corn years and in its soybean years, correlated across zones. The reference is the same statistic between the earlier and later half of a zone's own years of one crop.
+
+| pair | zones | Pearson | Spearman |
+|---|---|---|---|
+| corn years vs soybean years | 695,433 | 0.539 | 0.460 |
+| reference: earlier vs later corn years | 700,795 | 0.651 | 0.572 |
+| reference: earlier vs later soybean years | 640,391 | 0.537 | 0.546 |
+
+The raw figures are not directly comparable. The cross-crop correlation uses all of a zone's years on each side, while each reference splits one crop's years in half and so rests on fewer. Correcting the references to full length with the Spearman-Brown formula, 2r / (1 + r), gives reliabilities of 0.789 for corn and 0.699 for soybean. Dividing the cross-crop correlation by the square root of their product gives a **disattenuated cross-crop correlation of 0.726**, so about **53%** of a zone's stable relative standing is shared between its corn and soybean years and the remainder is crop-specific.
+
+Two caveats. The earlier-versus-later split also absorbs genuine change in a zone over eight years, which lowers the reference and makes the correction slightly generous. And the correction assumes the halves are parallel measurements, which a corn-soybean rotation only approximates.
+
+This is a partial zone-by-crop interaction, not a negligible one. It does not change the Step 2 baseline, which pools crops by design, but it strengthens the case for the crop-stratified S1 variant already scheduled as an ablation (issue #4), and the two mechanisms named there, soybean iron deficiency chlorosis on the calcareous soils of the Des Moines Lobe and droughty patches penalising corn more than soybean, are plausible sources.
+
+**5. Green-up spread around the NASS anchor.** Per field-year, the first date the field-median NDVI reaches its seasonal minimum plus half its amplitude, using field-dates at least 50% clear and including dates before planting so the curve has a floor. Days after the NASS 50% planted date.
+
+| crop | identifiable field-years | p10 | median | p90 | interquartile range |
+|---|---|---|---|---|---|
+| corn | 14,317 | 37 | 47 | 59 | 11 days |
+| soybean | 10,732 | 40 | 52 | 63 | 15 days |
+
+Unidentifiable field-years, where the first clear reading was already past the level, run from 0.0% to 3.0% by crop-year. Per-year quantiles fall on acquisition dates, so they move in steps of a few days.
+
+Half-amplitude green-up corresponds to mid-canopy development, and a median of 47 days after 50% planting is consistent with that for corn. The interquartile ranges of 11 and 15 days are roughly one 200 GDD bin in midsummer. Field-to-field planting variation within a year is a field-year constant that the within-field baseline cancels, so this spread matters only for cross-year bin alignment, where it amounts to about one bin of misalignment for the middle half of field-years. Recorded as the size of the anchor's limitation rather than as grounds to change it.
+
 ## Step 2 onward
 
-`[TBD]`. Not yet run: derecho sensitivity, corn-versus-soybean correlation, green-up spread, 10m against 30m zone size comparison.
+`[TBD]`. 10m against 30m zone size comparison: sample frozen and exports queued, not yet measured.
