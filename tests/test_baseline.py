@@ -193,3 +193,67 @@ def test_field_dates_below_the_minimum_clear_fraction_are_dropped():
     ), min_clear=0.5)
     dates = sorted({r[0] for r in con.execute("SELECT date FROM relative_obs").fetchall()})
     assert dates == ["2020-06-11"]   # 1 of 4 clear dropped, 3 of 4 kept
+
+
+def test_supported_view_drops_cells_below_the_prior_year_floor():
+    """A baseline resting on one or two readings is not a history."""
+    obs, gdd = target_zone_history({2018: 0.6, 2019: 0.7, 2020: 0.8, 2021: 0.9})
+    con = build(make_con(obs, gdd))
+    baseline.supported_view(con, min_prior_years=3)
+    years = [r[0] for r in con.execute(
+        "SELECT year FROM supported_baseline WHERE zone_id = 101 ORDER BY year"
+    ).fetchall()]
+    assert years == [2021]   # the only year with three prior years behind it
+
+
+def test_the_raw_baseline_keeps_unsupported_cells_and_their_count():
+    """The floor is applied where the baseline is consumed, so the raw count
+    stays inspectable. Hiding unsupported cells inside the baseline view would
+    make the share the floor excludes impossible to report."""
+    obs, gdd = target_zone_history({2018: 0.6, 2019: 0.7, 2020: 0.8, 2021: 0.9})
+    con = build(make_con(obs, gdd))
+    baseline.supported_view(con, min_prior_years=3)
+    counts = dict(con.execute(
+        "SELECT year, n_prior_years FROM baseline WHERE zone_id = 101"
+    ).fetchall())
+    assert counts == {2018: 0, 2019: 1, 2020: 2, 2021: 3}
+
+
+def test_supported_view_defaults_to_the_configured_floor():
+    from orbitalscout import config
+    obs, gdd = target_zone_history({2018: 0.6, 2019: 0.7, 2020: 0.8, 2021: 0.9})
+    con = build(make_con(obs, gdd))
+    baseline.supported_view(con)
+    floor = con.execute("SELECT min(n_prior_years) FROM supported_baseline").fetchone()[0]
+    assert floor == config.MIN_PRIOR_YEARS
+
+
+def test_precomputed_field_stats_give_the_same_residuals(tmp_path):
+    """The real build computes field medians once over all zones and reuses
+    them while windowing zones in chunks. Reusing them must change nothing;
+    recomputing per chunk would take a median over a chunk's zones only."""
+    obs = [(101, 1, 2020, "2020-06-01", 0.4), (102, 1, 2020, "2020-06-01", 0.5),
+           (103, 1, 2020, "2020-06-01", 0.9), (101, 1, 2021, "2021-06-01", 0.3),
+           (102, 1, 2021, "2021-06-01", 0.6), (103, 1, 2021, "2021-06-01", 0.8)]
+    gdd = {"2020-06-01": 300, "2021-06-01": 300}
+
+    inline = build(make_con(obs, gdd))
+    expected = inline.execute(
+        "SELECT zone_id, year, rel_ndvi, residual_ndvi FROM baseline ORDER BY zone_id, year"
+    ).fetchall()
+
+    stats_path = tmp_path / "field_date_stats.parquet"
+    inline.execute(f"COPY field_date_stats TO '{stats_path.as_posix()}' (FORMAT PARQUET)")
+
+    # A chunk holding zone 101 only, exactly as the chunked build sees it. If
+    # the precomputed stats were ignored, the median would be recomputed over
+    # zone 101 alone, its relative index would be zero, and this would fail.
+    chunk = make_con([o for o in obs if o[0] == 101], gdd,
+                     zones_per_field={1: [101, 102, 103]})
+    baseline.build_views(chunk, width_gdd=200, min_field_clear_frac=0.0, events=(),
+                         field_stats=str(stats_path))
+    got = chunk.execute(
+        "SELECT zone_id, year, rel_ndvi, residual_ndvi FROM baseline ORDER BY zone_id, year"
+    ).fetchall()
+    assert got == [row for row in expected if row[0] == 101]
+    assert got[0][2] == pytest.approx(-0.1), "median must come from all zones, not the chunk"

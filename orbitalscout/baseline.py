@@ -23,7 +23,8 @@ def _create_events(con, events):
         con.execute("INSERT INTO known_events VALUES (?, ?, ?)", [name, start, end])
 
 
-def build_views(con, width_gdd, min_field_clear_frac, events=config.KNOWN_EVENTS):
+def build_views(con, width_gdd, min_field_clear_frac, events=config.KNOWN_EVENTS,
+                field_stats=None):
     """Create the baseline view chain on `con`.
 
     width_gdd: phenology bin width.
@@ -31,6 +32,10 @@ def build_views(con, width_gdd, min_field_clear_frac, events=config.KNOWN_EVENTS
         this is dropped, because its median describes only the part of the
         field the clouds happened to leave visible.
     events: windows excluded from baseline history but kept as targets.
+    field_stats: optional path to precomputed field_date_stats Parquet. The
+        field median must be taken over every zone in a field, so a build that
+        processes zones in chunks computes it once over all zones and passes it
+        here; recomputing per chunk would take the median of a chunk's zones.
     """
     _create_events(con, events)
     crop_columns = ", ".join(f"crop_{year}" for year in config.YEARS)
@@ -63,6 +68,17 @@ def build_views(con, width_gdd, min_field_clear_frac, events=config.KNOWN_EVENTS
     # over. Median rather than mean, so an anomaly covering a large share of the
     # field cannot drag the centre toward itself and shrink its own residual.
     medians = ", ".join(f"median({name}) AS med_{name}" for name in INDICES)
+    if field_stats is not None:
+        con.execute(
+            "CREATE OR REPLACE VIEW field_date_stats AS "
+            f"SELECT * FROM read_parquet('{field_stats}')"
+        )
+    else:
+        _field_stats_view(con, medians)
+    _zone_views(con, min_field_clear_frac)
+
+
+def _field_stats_view(con, medians):
     con.execute(f"""
         CREATE OR REPLACE VIEW field_date_stats AS
         SELECT b.field_id, b.date, {medians},
@@ -73,6 +89,8 @@ def build_views(con, width_gdd, min_field_clear_frac, events=config.KNOWN_EVENTS
         GROUP BY b.field_id, b.date
     """)
 
+
+def _zone_views(con, min_field_clear_frac):
     relatives = ", ".join(f"b.{name} - s.med_{name} AS rel_{name}" for name in INDICES)
     con.execute(f"""
         CREATE OR REPLACE VIEW relative_obs AS
@@ -122,4 +140,18 @@ def build_views(con, width_gdd, min_field_clear_frac, events=config.KNOWN_EVENTS
                 ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
             )
         )
+    """)
+
+
+def supported_view(con, min_prior_years=config.MIN_PRIOR_YEARS):
+    """The baseline cells that later steps may use.
+
+    Every consumer reads `supported_baseline`, never `baseline`. The floor is
+    applied here rather than inside `baseline` so that the raw prior-year count
+    of every cell, including the ones excluded, stays inspectable. Without that,
+    the share of cells the floor removes could not be reported.
+    """
+    con.execute(f"""
+        CREATE OR REPLACE VIEW supported_baseline AS
+        SELECT * FROM baseline WHERE n_prior_years >= {int(min_prior_years)}
     """)
