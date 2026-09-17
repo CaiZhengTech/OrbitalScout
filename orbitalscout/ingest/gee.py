@@ -52,6 +52,24 @@ def build_aoi():
     )
 
 
+def frozen_aoi(project):
+    """The AOI as materialised by scripts/freeze_aoi.py.
+
+    Read rather than recomputed. build_aoi derives the polygon from live
+    Sentinel-2 footprints, and a footprint that shifts at the coverage margin
+    moves a field in or out; because field numbering is dense and sorted, that
+    renumbers every field after it. A raster exported today would then disagree
+    with a lookup table exported tomorrow, with each internally consistent and
+    nothing to raise on. DESIGN D18, architecture note Decision 4.
+    """
+    return ee.FeatureCollection(config.AOI_ASSET.format(project=project)).geometry()
+
+
+def frozen_fields(project):
+    """The selected fields, already carrying their dense field_idx."""
+    return ee.FeatureCollection(config.FIELDS_ASSET.format(project=project))
+
+
 def selected_fields(aoi):
     """CSB fields inside the AOI that grew a registry crop often enough.
 
@@ -99,14 +117,15 @@ def indexed_fields(fields):
     )
 
 
-def field_id_image(fields):
+def field_id_image(fields, already_indexed=False):
     """Paint the dense field index, inward-buffered by one zone width.
 
     The buffer is applied before painting so that no 30m zone straddles a field
     edge and mixes two fields' pixels.
     """
+    indexed = fields if already_indexed else indexed_fields(fields)
     buffered = ee.FeatureCollection(
-        indexed_fields(fields).toList(fields.size()).map(
+        indexed.toList(indexed.size()).map(
             lambda f: ee.Feature(f).buffer(config.FIELD_BUFFER_M)
         )
     )
@@ -114,7 +133,7 @@ def field_id_image(fields):
     return painted.unmask(config.NODATA).int32().rename("field_id")
 
 
-def export_fields_table(fields, description="orbitalscout_fields"):
+def export_fields_table(fields, description="orbitalscout_fields", already_indexed=False):
     """Export the index-to-field lookup, from the same ordering as the raster.
 
     Carries one crop code per year, which is what lets the baseline be
@@ -123,8 +142,9 @@ def export_fields_table(fields, description="orbitalscout_fields"):
     columns = ["field_idx", config.CSB_FIELD_ID, "CSBACRES"] + [
         config.CSB_CROP_PROPERTY.format(year=y) for y in config.YEARS
     ]
+    indexed = fields if already_indexed else indexed_fields(fields)
     task = ee.batch.Export.table.toDrive(
-        collection=indexed_fields(fields).select(columns, retainGeometry=False),
+        collection=indexed.select(columns, retainGeometry=False),
         description=description,
         folder=config.DRIVE_FOLDER,
         fileNamePrefix=description,

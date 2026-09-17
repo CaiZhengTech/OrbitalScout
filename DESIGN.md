@@ -222,6 +222,20 @@ Raised in `docs/reviews/2026-09-14-spec-review.md`, finding 6.
 
 ---
 
+### D19. Sentinel-2 comes from the harmonized collection
+
+**Decision.** `COPERNICUS/S2_SR_HARMONIZED`, not `COPERNICUS/S2_SR`.
+
+**Rationale.** In January 2022, ESA processing baseline 04.00 introduced a radiometric offset to all Sentinel-2 L2A products. Reflectances before and after that date are not on the same scale in the unharmonized collection, so a time series crossing it carries a step change that has nothing to do with the ground. The harmonized collection removes the offset so that 2018 and 2025 are comparable.
+
+**Why it matters here more than usual.** The study window is 2018 to 2025, so the discontinuity would sit in the middle of every per-zone history. A baseline built across it would encode the processing change as part of the zone's normal, and the residual for every zone in every post-2022 year would be biased in the same direction. Because the primary label is the bottom decile of residuals within a field-year, a uniform bias would largely cancel in the ranking, which is exactly what makes it dangerous: the number would look fine and the underlying series would be wrong.
+
+**Consequence.** Nothing in the code branches on date. The choice is a single collection id in `config.py`, which is the right place for a decision that must never be made twice.
+
+Raised in review on 2026-09-17.
+
+---
+
 ### D17. The baseline is within-field relative, not absolute
 
 **Decision.** A zone's baseline is its typical standing relative to its own field in the same year, pooled across all prior years regardless of crop. Formulas in `SPEC.md` Section 8.
