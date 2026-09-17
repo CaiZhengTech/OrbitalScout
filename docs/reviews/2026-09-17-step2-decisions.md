@@ -103,3 +103,73 @@ The rule conflated two separate questions. How wide a bin should be is a questio
 - The baseline with and without the post-derecho exclusion for the bins it touches (Decision 2).
 - The across-zone corn-versus-soybean correlation (architecture note, Decision 2).
 - Per-field green-up spread around the NASS anchor (Decision 1).
+
+
+---
+
+## Second amendment, 2026-09-17, after the support gate tripped
+
+Made after `scripts/build_baseline.py` ran on all eight seasons and the prior-year gate tripped in four places, all 2023 late-season bins. Evidence and the structural cause are in `RESULTS.md`, "Reporting owed by Step 2", item 2. No label and no evaluation number exist.
+
+### What the trip was, and what it was not
+
+The floor of three prior years excludes 30 to 55% of 2023's cells in bins 11 to 13 and all of bin 15. The cause is measured: the derecho exclusion removes 2020 from exactly those bins, 2023 has only five prior years to begin with, and three of the remaining four then have to be cloud-free. 2024 and 2025 pass with room to spare. Bin 15 cannot pass by construction, because only one or two prior crop-years reach 3,000 GDD before 30 September.
+
+Two things were unpinned when the gate was set, and both bear on whether the trip matters.
+
+First, **which bins the label uses** was never stated. The gate was applied to every bin uniformly, but a label is an aggregate over a window, and a zone-year can carry a label with some cells in the window missing. Per-cell exclusion was the wrong granularity.
+
+Second, **the label baseline is not the feature baseline.** SPEC Section 10, circularity control, requires the label residual to use a baseline estimated leave-one-year-out, excluding the target year and computed separately from the strictly-prior feature baseline. That view has not been built. The gate was measured on the strictly-prior baseline, which for 2023's late bins has four usable years; the leave-one-year-out baseline for the same cells has six (2018, 2019, 2021, 2022, 2024, 2025). The cells that tripped are the strictly-prior late-bin cells, and neither the label nor the rung 1 feature uses those cells in that form.
+
+This is the second gate today measured on an intermediate rather than on the thing it protects. The coverage rule measured cell presence when it meant baseline support; this gate measured per-cell support when it meant label and feature availability. The pattern is recorded so the next gate is set on the deliverable.
+
+### Decision 7. The label window, the gap and the feature window are pinned to growth stages
+
+Anchored to Abendroth, Elmore, Boyer and Marlay (2011), *Corn Growth and Development*, Iowa State University Extension PMR 1009, for a 2,700 GDD hybrid: VT about 1,135 to 1,350 GDD from planting, R1 silking about 1,400 to 1,500, R5 dent about 2,300, R6 black layer about 2,700. In 200 GDD bins:
+
+| window | bins | GDD | stage | why |
+|---|---|---|---|---|
+| feature | 0 to 6 | 0 to 1,400 | emergence through VT | vegetative growth; what an in-season scout can act on |
+| gap | 7 | 1,400 to 1,600 | R1 silking | the SPEC Section 10 temporal gap, one bin |
+| label | 8 to 11 | 1,600 to 2,400 | R2 blister through R5 dent | grain fill, where yield is determined and canopy still reflects photosynthetic capacity |
+
+Bins 12 and 13, R5.5 to R6, are excluded from the label on purpose. NDVI falls through senescence, and a low reading there is confounded between stress and early maturity. Bins 14 and 15 are past physiological maturity for most crop-years.
+
+**The label** for a zone-year is the mean NDVI residual over its supported cells in bins 8 to 11, computed against the leave-one-year-out baseline. At least one supported cell is required; the number of supporting cells is recorded per zone-year. Underperforming is the bottom decile of that label within field-year, over the zones that carry a label, as SPEC Section 10 already states.
+
+**The rung 1 feature** for a zone-year is the NDVI residual in its latest supported cell within bins 0 to 6, against the strictly-prior baseline. At least one supported cell is required; the bin used is recorded.
+
+Soybean uses the same bins. Its development is photoperiod-driven and the correspondence to R-stages is looser, which D5 already records as a weakness reported rather than hidden. Choosing a different window for soybean would put a crop name in a conditional; the crop-specific part, the GDD origin, is already in the registry.
+
+This formulation makes the product claim concrete: rank by vegetative-stage anomaly, score against grain-fill outcome, with silking as the gap. The feature never sees the label window.
+
+### Decision 8. The leave-one-year-out label baseline is built
+
+Required by SPEC Section 10 and not yet implemented. Same three formulas as D17, same known-event exclusion, same field median, same floor of three supporting years, but the window is every other year in the record rather than strictly prior years. Two views, `baseline` and `label_baseline`, and the Step 4 split tests assert that the feature side never reads a year at or after its target and the label side never reads its own target year.
+
+### Decision 9. The gate is re-specified at the granularity of what it protects
+
+**Original.** The floor may exclude at most a fifth of zone-year-bin cells anywhere in the held-out years. Tripped as recorded.
+
+**Re-specified.** In each held-out year, separately:
+
+- share of zone-years with **no label** (zero supported cells in bins 8 to 11 against the leave-one-year-out baseline) at most 20%;
+- share of zone-years with **no feature** (zero supported cells in bins 0 to 6 against the strictly-prior baseline) at most 20%.
+
+Bins that fewer than three prior crop-years structurally reach are undefined, not failed, and are outside both windows by construction.
+
+**This has not been measured.** The amendment is written before the number exists. If either share exceeds 20% in any held-out year, Step 2 stops and the question of which years are held out goes to the user as a conversation about the frozen protocol, per CLAUDE.md rule 7. It does not become a further amendment.
+
+### Decision 10. The floor stays at three
+
+Lowering it after the gate tripped is the forking-paths problem in its plainest form, and the reasoning that set it, a mean of two readings is not a history, has not changed.
+
+### Rejected
+
+**Drop 2023 as a held-out year.** Touches SPEC Section 10, which requires a conversation with the user, not a decision record. Also premature: the correctly specified gate has not been measured, and the cells that tripped are not the ones the label uses.
+
+**Narrow the derecho window.** Lodged corn does not recover, so 2020 after 10 August is contaminated through harvest. Physically unjustified. Scoping the exclusion spatially to the NASS damage polygons rather than the whole AOI is noted as a possible refinement if the re-specified gate still trips; it adds a data dependency and is not adopted now.
+
+### What the tripped cells still affect
+
+The strictly-prior late-bin cells for 2023 are used by late-season signals at Step 5 (S4 velocity, S5 persistence) and by the support behind the B1b null, whose prior-year residual for 2023 rests on 2021's baseline. Both are reported when reached; neither is in the rung 1 evaluation.
