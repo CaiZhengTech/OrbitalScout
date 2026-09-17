@@ -33,6 +33,11 @@ FROZEN = "orbitalscout/frozen"
 CLEAR_CANDIDATES = (0.0, 0.5, 0.9, 0.99)
 PROVISIONAL_WIDTH = 200  # only for the contamination diagnostic, which needs a stage bucket
 
+# The retired Decision 4 rule, kept here so this script still reproduces the
+# evidence that retired it. Not used anywhere else. See the Step 2 amendment.
+RETIRED_WIDTH_CANDIDATES = (150, 200, 250, 300)
+RETIRED_COVERAGE_MIN = 0.90
+
 
 def main():
     con = duckdb.connect("data/orbitalscout.duckdb", read_only=True)
@@ -111,7 +116,7 @@ def main():
     """)
     header = "   width  " + "".join(f"  clear>={c:<5}" for c in CLEAR_CANDIDATES)
     print(header)
-    for width in config.BIN_WIDTH_CANDIDATES_GDD:
+    for width in RETIRED_WIDTH_CANDIDATES:
         cells = []
         for threshold in CLEAR_CANDIDATES:
             observed, possible = con.execute(f"""
@@ -133,7 +138,7 @@ def main():
             """).fetchone()
             cells.append(f"  {100 * observed / possible:>9.1f}%  ")
         print(f"   {width:>5}  " + "".join(cells))
-    print(f"\n   rule: narrowest width with coverage >= {config.BIN_COVERAGE_MIN:.0%}")
+    print(f"\n   retired rule: narrowest width with coverage >= {RETIRED_COVERAGE_MIN:.0%}")
 
 
 if __name__ == "__main__":

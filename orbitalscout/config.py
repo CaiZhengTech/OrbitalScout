@@ -124,8 +124,18 @@ KNOWN_EVENTS = (
 # field-year constant that the within-field baseline cancels.
 WEATHER_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 
-# Candidate phenology bin widths in GDD. The narrowest that leaves at least
-# BIN_COVERAGE_MIN of zone-year-bins with an observation wins. Coverage for
-# every candidate is reported whichever is chosen, so the rule is auditable.
-BIN_WIDTH_CANDIDATES_GDD = (150, 200, 250, 300)
-BIN_COVERAGE_MIN = 0.90
+# A field-date is used only if at least this share of the field's zones is
+# clear. The field median is taken over visible zones and cloud is contiguous,
+# so below half the field the "centre" describes a patch, not the field.
+# Step 2 amendment, Decision 5.
+MIN_FIELD_CLEAR_FRAC = 0.50
+
+# Phenology bin width, chosen for stage resolution: four bins across emergence
+# to canopy closure, where relative standing changes fastest. Step 2
+# amendment, Decision 6, which retires the earlier coverage rule.
+BIN_WIDTH_GDD = 200
+
+# A baseline cell resting on fewer prior years than this is not labelled or
+# ranked. Enforced where the baseline is consumed, not inside the baseline
+# view, so the raw count stays inspectable. Decision 6.
+MIN_PRIOR_YEARS = 3
