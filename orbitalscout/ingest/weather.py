@@ -52,3 +52,34 @@ def accumulate(daily, base_f, cap_f, origin=None):
         out.loc[out["date"] < str(origin), "gdd"] = 0.0
     out["gdd_cumulative"] = out["gdd"].cumsum()
     return out
+
+
+def gdd_table(daily, planting_dates):
+    """Cumulative GDD per crop per date, from each crop-year's planting origin.
+
+    Returns columns cdl_code, date, gdd. One row per registry crop per day on or
+    after that crop-year's origin. Days before the origin are left out rather
+    than given a GDD of zero: before planting the satellite sees bare soil, so
+    those observations have no growth stage and must not land in the first bin.
+
+    Thresholds come from the crop registry by CDL code, so no crop name is ever
+    branched on here.
+    """
+    from .. import crops
+
+    daily = daily.copy()
+    daily["year"] = daily["date"].str.slice(0, 4).astype(int)
+    frames = []
+    for row in planting_dates.itertuples(index=False):
+        crop = crops.get(row.cdl_code)
+        season = daily[daily["year"] == int(row.year)]
+        season = season[season["date"] >= str(row.fifty_pct_planted)]
+        if season.empty:
+            continue
+        acc = accumulate(season, crop.gdd_base_f, crop.gdd_cap_f)
+        frames.append(pd.DataFrame({
+            "cdl_code": int(row.cdl_code),
+            "date": acc["date"].values,
+            "gdd": acc["gdd_cumulative"].values,
+        }))
+    return pd.concat(frames, ignore_index=True)
