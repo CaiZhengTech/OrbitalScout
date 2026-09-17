@@ -84,6 +84,10 @@ This single reframe drives most of the rest of the design.
 
 **Known weakness.** Soybean development is strongly photoperiod and maturity-group driven and there is no authoritative GDD-per-stage table. Soybean alignment is weaker than corn. Stated in results, not hidden.
 
+**Amendment (2026-09-17, before Step 2).** D17 changed what this decision is for. The original rationale was that two zones on the same calendar date may be at different growth stages. Within a CSB field that is now moot: the field is planted as a unit, so planting date is a field-year constant and the field median cancels it on every date. What GDD alignment still does, and the reason it stays, is align a zone's baseline **across years**, since a zone's relative standing changes with stage: a wet spot lags at emergence and closes the gap by canopy closure, so comparing bin b between years only means something if bin b is the same stage in each.
+
+Accordingly the origin is the USDA NASS 50% planted date per crop per year, which anchors the year-level offset without inventing a threshold, and GDD is computed once at the AOI centroid rather than per field. See `docs/reviews/2026-09-17-step2-decisions.md`, Decisions 1 and 3.
+
 ---
 
 ### D6. Six signals, added one at a time

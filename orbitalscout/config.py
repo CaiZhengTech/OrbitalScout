@@ -103,3 +103,29 @@ NATIVE_SIZE_M = 10
 # unless asked, which would make a cloudy day indistinguishable from a reading
 # of zero greenness. Outside the range of any scaled index or sub-pixel count.
 NODATA = -32768
+
+# Windows excluded from baseline estimation, because the signal inside them is
+# a different physical process from the one the baseline is meant to capture.
+# Knowledge as data (D4): adding an event is adding a row, never a branch on a
+# year. Applied to the feature baseline and the leave-one-year-out label
+# baseline alike; observations are still ingested and still available to the
+# qualitative case study in SPEC Section 10.
+KNOWN_EVENTS = (
+    # name, start (inclusive), end (inclusive), why
+    ("derecho_2020", "2020-08-10", "2020-12-31",
+     "Regional wind damage. Lodging is uneven inside a field, so within-field "
+     "relativity does not cancel it, and 2020 sits in the baseline window of "
+     "every held-out year."),
+)
+
+# Open-Meteo archive, daily 2m max and min temperature. One series at the AOI
+# centroid rather than per field: the temperature field varies by a fraction of
+# a degree across a 30 km AOI, and any field-to-field difference is a
+# field-year constant that the within-field baseline cancels.
+WEATHER_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
+
+# Candidate phenology bin widths in GDD. The narrowest that leaves at least
+# BIN_COVERAGE_MIN of zone-year-bins with an observation wins. Coverage for
+# every candidate is reported whichever is chosen, so the rule is auditable.
+BIN_WIDTH_CANDIDATES_GDD = (150, 200, 250, 300)
+BIN_COVERAGE_MIN = 0.90

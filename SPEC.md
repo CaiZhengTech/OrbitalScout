@@ -132,6 +132,16 @@ Crop is a property of the field-year, not of the zone. Corn Belt fields rotate a
 
 Within-field relativity does not cancel a zone-by-crop interaction, where a zone's relative standing genuinely differs between corn years and soybean years. A crop-stratified variant of S1 is therefore a candidate refinement in the ablation ladder, admitted only if it measurably improves lift over B1b, exactly like any other signal. Step 2 reports the across-zone correlation between mean relative standing in corn years and in soybean years as a diagnostic, not as a gate.
 
+**GDD origin.** Accumulation starts on the date USDA NASS Crop Progress reports the state reaching 50% planted for that crop in that year. An external published anchor, with no threshold invented here.
+
+D5 argued for GDD alignment because two zones on the same date may sit at different growth stages. Under the within-field relative baseline of D17 that no longer applies between zones: a CSB field is planted as one unit, so planting date is a field-year constant and the field median cancels it. What GDD alignment still does is align the baseline **across years**, and the dominant planting-date variation is year to year, roughly two weeks either side in the Corn Belt. A state-level date targets that component. The residual field-to-field difference within a year is the part D17 already removes.
+
+Step 2 reports, as a diagnostic and not a gate, the spread of per-field green-up around the state anchor, computed from the field-median index curve. If field-level green-up scatters widely around the state date, that is recorded in `RESULTS.md` and the anchor is reconsidered.
+
+**Excluded windows.** Observations inside a window listed in `config.KNOWN_EVENTS` are excluded from baseline estimation, for the feature baseline and the leave-one-year-out label baseline alike. They remain ingested and remain available to the qualitative case study in Section 10. The list holds one entry, the August 2020 derecho from its date of occurrence to the end of that season: lodging is uneven inside a field, so within-field relativity does not cancel it, and 2020 falls in the baseline window of every held-out year. The baseline is reported with and without that exclusion for the bins it touches, so the size of the effect is measured rather than argued.
+
+**Bin width.** A phenology bin must be narrow enough to resolve a growth stage and wide enough that a zone is usually observed inside it. The width is the narrowest of 150, 200, 250 and 300 GDD for which at least 90% of zone-year-bins contain at least one clear observation. Coverage for every candidate is recorded in `RESULTS.md` whichever is chosen. The 90% is a coverage floor fixed before binning, not a tuned quantity.
+
 Crop-specific parameters live in a **crop registry table**, one row per crop, keyed by CDL code:
 
 ```
