@@ -139,6 +139,29 @@ The database was built by a different code path from the Step 0 gate, so the two
 
 The upper quantiles and the overall clear fraction agree. The p10 deliberately does not: Step 0 measured the whole county including the single-orbit stripe, which is where its 12 came from, and the database covers only the doubly covered AOI. The disappearance of that tail is independent confirmation that the restriction in `DESIGN.md` D18 did what it was specified to do.
 
+### Independent value check against Planetary Computer
+
+Run 2026-09-17 with `scripts/run_crosscheck.py --zones 20`.
+
+Every other verification in this project is structural: row counts, nodata handling, quantile ranges, agreement with the Step 0 gate. None of them can say whether a given NDVI is the number an independent source produces from the same satellite pass. This compares 20 zone-dates against Sentinel-2 L2A served by Microsoft Planetary Computer, read with rasterio directly from the COGs, so the only code shared with the Earth Engine path is the arithmetic of a normalised difference.
+
+**Tolerances were fixed as constants in `orbitalscout/ingest/crosscheck.py` before the comparison ran**, so they could not be widened after seeing the result.
+
+| statistic | measured | tolerance |
+|---|---|---|
+| median absolute difference | 0.0039 | 0.02 |
+| 95th percentile absolute difference | 0.0273 | none set |
+| maximum absolute difference | 0.0448 | 0.10 |
+| correlation | 0.9985 | none set |
+
+Passed. The residual difference is consistent with the two services resampling from UTM to EPSG:5070 differently, and is far below the anomaly magnitudes the project ranks on.
+
+### Regression fixture cut from the real export
+
+`tests/fixtures/` holds a 32x32 window of the 2020 export, about 20 KB, carrying all three of the markers a real file contains: valid cells, cells masked by cloud, and cells zero-filled outside the export region. `tests/test_real_fixture.py` pins the melted output at 1,192 rows across 596 zones and 2 dates, with an NDVI sum of 228.714.
+
+It exists because four of the five defects below were invisible to synthetic fixtures by construction: those fixtures were written from the same mental model that produced the bug, and always declared a nodata value and used a single absent marker.
+
 ### Bugs found by running, that the review documents did not catch
 
 Recorded because they are the argument for the build order, not incidental.
