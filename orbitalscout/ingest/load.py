@@ -14,18 +14,30 @@ import duckdb
 from .melt import ZONE_GRID_M, _OFFSET, _STRIDE
 
 
-def load(db_path, zone_obs_glob, fields):
+def load(db_path, zone_obs_glob, fields, memory_limit="2GB"):
     """Write fields, zones and zone_obs. Replaces, so re-running is safe.
 
     `zone_obs_glob` is a path or glob of wide Parquet files, one per season.
+    Those files remain the storage; `zone_obs` is a view over them, so the
+    database holds only the small tables and the Parquet must stay in place.
     """
     con = duckdb.connect(db_path)
     try:
+        # Bound the working set so an aggregation over a hundred million rows
+        # spills to disk rather than being killed by the OS.
+        con.execute(f"SET memory_limit = '{memory_limit}'")
+
         con.register("_fields", fields)
         con.execute("CREATE OR REPLACE TABLE fields AS SELECT * FROM _fields")
+
+        # A view, not a table. The Parquet files are the data; copying them
+        # into the database duplicates every row for nothing, and at eight
+        # seasons that is 1.5 GB and enough to get the load killed for memory.
+        # SPEC Section 12 chose DuckDB over Parquet precisely so the rows can
+        # stay where they are.
         con.execute(
-            "CREATE OR REPLACE TABLE zone_obs AS "
-            "SELECT * FROM read_parquet(?)", [zone_obs_glob]
+            "CREATE OR REPLACE VIEW zone_obs AS "
+            f"SELECT * FROM read_parquet('{zone_obs_glob}')"
         )
 
         duplicates = con.execute(

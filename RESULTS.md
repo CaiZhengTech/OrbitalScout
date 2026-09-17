@@ -172,6 +172,30 @@ Recorded because they are the argument for the build order, not incidental.
 4. **Field numbering built twice.** The field raster and the lookup table were produced by separate Earth Engine calls over a collection with no guaranteed iteration order, which could have pointed every zone at the wrong field with nothing to raise on. Both now share one ordering, sorted by CSBID.
 5. **The long intermediate did not fit in memory.** A season is 26.2 million rows in long form and about 3.1 GB in pandas, and the first round trip was killed by the OS. The cost was the shape: the long form stores the index name as a string on every row, duplicating the band name and tripling the row count. `melt` now streams one wide frame per date straight to Parquet, so peak memory is one date regardless of season count.
 
+### All eight seasons ingested
+
+| season | zone-date rows | dates with data | median NDVI |
+|---|---|---|---|
+| 2018 | 16,103,298 | 46 | 0.645 |
+| 2019 | 13,570,387 | 42 | 0.790 |
+| 2020 | 17,892,753 | 44 | 0.596 |
+| 2021 | 22,983,655 | 48 | 0.590 |
+| 2022 | 17,857,046 | 47 | 0.734 |
+| 2023 | 21,324,419 | 50 | 0.703 |
+| 2024 | 21,244,454 | 51 | 0.594 |
+| 2025 | 18,596,800 | 59 | 0.641 |
+| **total** | **149,572,812** | **387** | |
+
+All 701,592 zones are present in every season, which is what the frozen field set guarantees.
+
+Cloud drives a 1.7 times spread in usable observations between the worst season (2019, 13.6M rows) and the best (2021, 23.0M). Because a baseline uses only prior years, a held-out year backed by 2019 carries measurably less history than one backed by 2021. Recorded here so that a difference in baseline quality between test years is not later mistaken for a difference in signal.
+
+Median NDVI by season ranges from 0.590 to 0.790. This is interannual variation in the growing season, not a defect, but it is also the reason the baseline is within-field relative: a whole-season shift of that size would otherwise be attributed to individual zones.
+
+33 rows in 149.6 million sit at the degenerate limits of plus or minus one. No nulls in any index column.
+
+**Storage.** 1.65 GB of Parquet and a 7.4 MB database, because `zone_obs` is a view over the Parquet rather than a copy of it. The database is 0.4% of the data it indexes.
+
 ## Step 1 onward
 
-`[TBD]`. Exports for 2018, 2019, and 2021 through 2025 not yet queued. Zone size comparison at 10m against 30m not yet measured.
+`[TBD]`. Zone size comparison at 10m against 30m not yet measured. Step 2, the phenology-aligned within-field baseline, not started.

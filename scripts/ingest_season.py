@@ -40,6 +40,9 @@ def main():
     parser.add_argument("--year", type=int, required=True)
     parser.add_argument("--data", default="data")
     parser.add_argument("--db", default="data/orbitalscout.duckdb")
+    parser.add_argument("--melt-only", action="store_true",
+                        help="write the Parquet and stop. Load once at the end "
+                             "instead of re-reading every season each time.")
     args = parser.parse_args()
 
     data = pathlib.Path(args.data)
@@ -65,6 +68,9 @@ def main():
     print(f"melted: {written:,} zone-date rows -> {parquet.name}")
     if not written:
         raise SystemExit("melt produced nothing; check the export")
+
+    if args.melt_only:
+        return 0
 
     load.load(args.db, str(data / "zone_obs_*.parquet"), fields)
     print(f"loaded into {args.db}")

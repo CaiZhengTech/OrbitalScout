@@ -129,3 +129,24 @@ def test_multiple_season_files_load_together(db, tmp_path, fields):
     con = duckdb.connect(db)
     assert con.execute("SELECT count(*) FROM zone_obs").fetchone()[0] == 2
     assert con.execute("SELECT count(DISTINCT year) FROM zone_obs").fetchone()[0] == 2
+
+
+def test_zone_obs_is_a_view_not_a_copy(db, zone_obs, fields):
+    """The Parquet is the data; the database must not duplicate it.
+
+    Materialising zone_obs as a table copies every row into the .duckdb file,
+    which for eight seasons is 1.5 GB duplicated and was enough to get the load
+    killed for memory. SPEC Section 12 chose DuckDB over Parquet so the rows
+    can stay where they are.
+    """
+    load.load(db, str(zone_obs), fields)
+    kind = duckdb.connect(db).execute(
+        "SELECT table_type FROM information_schema.tables WHERE table_name = 'zone_obs'"
+    ).fetchone()[0]
+    assert kind == "VIEW"
+
+
+def test_database_file_stays_small_relative_to_the_parquet(db, zone_obs, fields):
+    import pathlib
+    load.load(db, str(zone_obs), fields)
+    assert pathlib.Path(db).stat().st_size < 4 * 1024 * 1024
