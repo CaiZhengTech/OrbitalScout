@@ -59,3 +59,47 @@ A phenology bin needs to be narrow enough to resolve a stage and wide enough tha
 ## What Step 2 needs from outside
 
 A free USDA NASS Quick Stats API key, from quickstats.nass.usda.gov/api. The query is state IA, commodity CORN or SOYBEANS, statistic category PROGRESS, unit PCT PLANTED, weekly, 2018 to 2025. Sixteen crossing dates in total. Confirm the exact unit string against the API before relying on it.
+
+---
+
+## Amendment, 2026-09-17, after measurement
+
+Made after `scripts/step2_measure.py` ran and before the baseline was built on real data. The evidence is in `RESULTS.md` under "Parameter evidence: cloud threshold and bin width". Two things are decided; one earlier rule is retired, and the reason is stated rather than the threshold quietly moved.
+
+### Decision 5. Minimum field clear fraction is 50%
+
+The diagnostic measured one concern: whether zones seen on a partly clouded date read differently from the same field at the same stage on a clear date. Above 25% clear they do not. Below 25% there is a small low bias, minus 0.010 NDVI under 10% clear, consistent with missed cloud edge or haze.
+
+There is a second concern the diagnostic did not measure, and it is specific to D17. The field median on a date is taken over the zones that are visible. Cloud is spatially contiguous, so a 25% visible field is a 25% contiguous patch, and its median is that patch's centre rather than the field's. Every visible zone is then measured against the wrong centre. At one visible zone the median is that zone and its relative index is exactly zero, an observation that says nothing.
+
+Fifty percent covers the second concern by construction: a median over at least half the zones is a median over the majority of the field. It costs about 1.2 points of bin coverage against no threshold at all. Ninety percent would cost a further 3 points for no measured benefit, since the absolute bias is already gone above 25%.
+
+`MIN_FIELD_CLEAR_FRAC = 0.50`.
+
+### Decision 6. Bin width is 200 GDD, chosen for stage resolution, and the coverage rule is retired
+
+**What the original rule said.** Decision 4: the narrowest of 150, 200, 250 and 300 GDD such that at least 90% of zone-year-bins hold an observation.
+
+**What it selected.** 300 GDD, and only at a cloud threshold of 50% or below. 250 reaches 88%, 200 reaches 84%.
+
+**Why it is retired rather than followed.** The shortfall is not a counting artifact; excluding partial season-end bins moves coverage by under two points. It is genuine sparsity at 400 to 800 GDD, late May into June, Iowa's cloudiest weeks. Widening the bins does not add a single observation to that window. It makes the cells larger so that the same sparse observations fall into fewer, bigger cells, and the coverage number passes. A rule that can be satisfied by its own mechanism without improving the thing it was meant to protect is measuring the wrong quantity.
+
+The rule conflated two separate questions. How wide a bin should be is a question about **resolution**: within a bin, a zone's relative standing should be roughly constant, or the baseline averages across a change. How much history a baseline cell rests on is a question about **support**. Coverage was a proxy for support, and a leaky one.
+
+**Resolution.** A zone's relative standing changes fastest between emergence and canopy closure, roughly 0 to 800 GDD, and is comparatively stable from canopy closure through grain fill. 200 GDD gives four bins across that early window and about fourteen across a season. 300 gives two or three early bins and nine or ten overall. 150 would be finer still but drops coverage to 74% and thins every cell. 200 is chosen as the narrowest width that does not make cells routinely empty, stated as a judgment about what the baseline must resolve, not derived from a coverage figure.
+
+**Support.** The baseline already skips empty cells and records `n_prior_years` per zone-year-bin. That count is the quantity the coverage rule was standing in for, so it is enforced directly: a cell whose baseline rests on fewer than three prior years is not used for the label and not ranked. Three is the smallest count at which a mean of prior years is meaningfully a history rather than one or two readings. Fixed here, before the distribution of `n_prior_years` has been computed. If it excludes a large share of cells, that is reported as a finding, not treated as a reason to lower the floor.
+
+**Pre-registered concern.** The decision record for this step said, before measurement: "next Fable moment is if the bin-coverage rule picks 300 GDD (too coarse to resolve stages)." Both the rule and the concern about its likely answer were written down in advance, and they conflicted. This amendment resolves a pre-stated conflict; it is not a threshold moved after an inconvenient number.
+
+**What was not unreasonable.** 300 GDD would have served the core evaluation. The primary label is an end-of-season residual, and late-season relative standing is stable enough that 300 and 200 bin it similarly. The cost of 300 falls on the early-season signals of Step 5, which is where resolution matters. That is worth saying so the choice reads as a trade-off and not as the only defensible answer.
+
+`BIN_WIDTH_GDD = 200`. `MIN_PRIOR_YEARS = 3`. `BIN_WIDTH_CANDIDATES_GDD` and `BIN_COVERAGE_MIN` are removed from config; the measurement script and its results stay as the record of why.
+
+### Reporting owed by Step 2
+
+- Bin coverage at 200 GDD and 50% clear, the figure the retired rule would have scored.
+- The distribution of `n_prior_years` per cell for the held-out years 2023, 2024 and 2025, and the share of cells the floor of three excludes, overall and by bin.
+- The baseline with and without the post-derecho exclusion for the bins it touches (Decision 2).
+- The across-zone corn-versus-soybean correlation (architecture note, Decision 2).
+- Per-field green-up spread around the NASS anchor (Decision 1).
