@@ -425,6 +425,52 @@ The honest reading is that year-over-year variation in this quantity is not domi
 
 **The zone size does not change.** 30m rested on three arguments. Volume: 10m over the full AOI is about 1.6 billion rows against a single-digit GB storage claim, which stands and is decisive. Native resolution: red edge and SWIR are 20m on Sentinel-2, so a 10m NDRE or NDWI zone interpolates, which stands. Noise and jitter: **not supported by this measurement**, and that argument should not be repeated in the write-up.
 
-## Step 2 onward
+## Step 3: ranking by S1 alone
 
-`[TBD]`. Step 3, signal S1 alone, not started.
+Run with `python scripts/rank_step3.py` on 2026-09-17. Rung 1 of the complexity ladder: one signal, sorted, no model and no training.
+
+**2,088,521 zone-years ranked** across the three held-out years, none dropped for a missing score.
+
+S1 score, the negated within-field relative residual, where larger is more urgent:
+
+| year | zone-years | p1 | p25 | median | p75 | p99 |
+|---|---|---|---|---|---|---|
+| 2023 | 699,441 | -0.2040 | -0.0265 | -0.0014 | 0.0187 | 0.1740 |
+| 2024 | 696,733 | -0.1575 | -0.0215 | -0.0012 | 0.0183 | 0.2127 |
+| 2025 | 692,347 | -0.1333 | -0.0190 | -0.0010 | 0.0135 | 0.1522 |
+
+The median sits within 0.002 of zero in every year, which is what a residual against a zone's own history should do, and the tails are roughly symmetric.
+
+What a budget selects, over 9,365 field-years:
+
+| budget | zones chosen | mean per field-year |
+|---|---|---|
+| 20 zones | 170,350 | 18.2 |
+| 5% of field | 109,000 | 11.6 |
+| 10% of field | 213,103 | 22.8 |
+| 20% of field | 421,449 | 45.0 |
+
+A 20-zone budget averages 18.2 rather than 20 because some field-years hold fewer than 20 zones after the inward buffer. Mean field-year size is 223 zones, so 20 zones is roughly 9% of an average field, close to the 10% the metric is usually quoted at.
+
+### Does the ranking reproduce the soil map?
+
+This is the premise of D1: ranking by absolute vegetation index reproduces the permanent soil map, and the residual is supposed to remove it. A leak would appear as a **negative** correlation between urgency and persistent standing, urgent zones being the ones that are always poor.
+
+Persistent standing has to be measured from years the strictly-prior baseline never saw. The first version of this diagnostic correlated the score against the baseline it is computed from, and reported +0.174 to +0.194. That number is arithmetic, not evidence: the score is baseline minus relative, and the covariance of the residual with the baseline is minus the variance of the baseline's own estimation noise, so a positive value is guaranteed. That is the shared-estimation-error trap recorded as open item 10b of the council review. The diagnostic was rewritten rather than reported.
+
+Measured against later years instead:
+
+| year | standing measured from | zone-years | Pearson | Spearman |
+|---|---|---|---|---|
+| 2023 | 2024, 2025 | 695,739 | 0.002 | 0.068 |
+| 2024 | 2025 | 691,190 | 0.001 | 0.119 |
+| 2025 | no later years available | | | |
+
+**The residual removes the permanent soil signal.** Pearson correlation is within 0.002 of zero, and the sign is not negative, so the ranking is not selecting the always-poor zones. The small positive Spearman is consistent with mild mean reversion, zones sitting above a noisily estimated baseline having more room to fall below it, rather than with a soil-map leak.
+
+This is a sanity check on the premise, not the evaluation. Whether the ranking is **correct** is precision@k against the label, and whether it beats the obvious alternatives is lift over B1a and B1b. Both are Step 4.
+
+## Step 4 onward
+
+`[TBD]`. Evaluation harness not started.
+
