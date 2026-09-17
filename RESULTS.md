@@ -223,6 +223,58 @@ Corn spans 16 days across the eight years and soybean spans 31. Soybean follows 
 
 No week in any series was reported twice with conflicting values.
 
+### Parameter evidence: cloud threshold and bin width
+
+Run with `python scripts/step2_measure.py` on 2026-09-17. Coverage uses a deterministic 5% sample of zones (hash of zone id), 34,973 zones and 7,051,748 observations; clear fraction is always computed over every zone in a field.
+
+**Do partially clouded field-dates read differently?** NDVI on the date minus the same field's NDVI on fully clear (99% or more) dates at the same growth stage, same year. Stage bucket of 200 GDD, used for this diagnostic only.
+
+| field clear | observations | median difference | p25 | p75 |
+|---|---|---|---|---|
+| 0 to 10% | 15,045 | -0.0104 | -0.0607 | 0.0268 |
+| 10 to 25% | 40,284 | -0.0046 | -0.0477 | 0.0300 |
+| 25 to 50% | 109,179 | 0.0004 | -0.0389 | 0.0345 |
+| 50 to 75% | 187,169 | 0.0020 | -0.0349 | 0.0359 |
+| 75 to 90% | 205,108 | 0.0020 | -0.0346 | 0.0356 |
+| 90 to 99% | 278,814 | 0.0030 | -0.0332 | 0.0373 |
+| 99 to 100% | 5,868,151 | 0.0013 | -0.0247 | 0.0242 |
+
+Above 25% clear the median difference is indistinguishable from zero. Below 25% there is a small low bias, largest under 10%, consistent with missed cloud edge or haze. The narrower spread in the fully clear band is partly an artifact: that band is compared against a reference it contributes to.
+
+**Bin coverage**, share of zone-year-bins holding at least one observation, over every bin from planting to 30 September:
+
+| width (GDD) | no threshold | clear >= 50% | clear >= 90% | clear >= 99% |
+|---|---|---|---|---|
+| 150 | 74.2% | 72.8% | 69.3% | 66.5% |
+| 200 | 83.6% | 82.4% | 79.4% | 76.9% |
+| 250 | 88.4% | 87.4% | 84.6% | 82.4% |
+| 300 | 91.1% | 90.3% | 88.1% | 86.1% |
+
+**The rule fixed in SPEC Section 8 before binning, the narrowest width reaching 90%, selects 300 GDD, and only at a cloud threshold of 50% or below. Under stricter thresholds no candidate reaches 90%.**
+
+**Where the shortfall sits**, at 200 GDD with no threshold:
+
+| bin | GDD | coverage |
+|---|---|---|
+| 0 | 0 to 200 | 92.6% |
+| 1 | 200 to 400 | 88.4% |
+| 2 | 400 to 600 | 79.2% |
+| 3 | 600 to 800 | 77.0% |
+| 4 | 800 to 1000 | 84.9% |
+| 5 | 1000 to 1200 | 80.9% |
+| 6 | 1200 to 1400 | 92.2% |
+| 7 | 1400 to 1600 | 89.4% |
+| 8 | 1600 to 1800 | 84.3% |
+| 9 | 1800 to 2000 | 80.0% |
+| 10 | 2000 to 2200 | 91.8% |
+| 11 | 2200 to 2400 | 84.5% |
+| 12 | 2400 to 2600 | 84.3% |
+| 13 to 16 | 2600 and above | partial last bin for some crop-years |
+
+Excluding bins that are ever a partial last bin raises coverage only from 83.6% to 85.3%. The shortfall is therefore genuine sparsity rather than a counting artifact at the season edges, and it is concentrated at 400 to 800 GDD, late May into June, which is Iowa's cloudiest part of the season. The bin immediately after planting is well observed at 92.6%.
+
+**Neither parameter has been chosen.** The pre-stated coverage rule points at the width that the Step 2 decision record named as too coarse to resolve growth stages, so this goes back for an explicit decision rather than a quiet relaxation of the rule.
+
 ## Step 2 onward
 
-`[TBD]`. Bin width coverage, the within-field baseline, and the 10m against 30m zone size comparison not yet measured.
+`[TBD]`. Cloud threshold and bin width not yet chosen. Baseline not yet built on real data. 10m against 30m zone size comparison not yet measured.
