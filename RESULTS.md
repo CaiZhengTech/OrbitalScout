@@ -109,6 +109,46 @@ Four of the twelve July acquisition dates survived masking at this zone, consist
 
 Cube shape for 2020: 61 acquisition dates, 183 value bands (`<index>_<YYYYMMDD>`, three indices) and 61 count bands (`count_<YYYYMMDD>`, one per date because the mask is shared across indices).
 
+### Round trip verified end to end on 2020
+
+Export, download, melt and load run end to end. `data/orbitalscout.duckdb`:
+
+| table | rows |
+|---|---|
+| `fields` | 3,445 |
+| `zones` | 701,592 |
+| `zone_obs` | 17,892,753 |
+
+44 of the 61 acquisition dates produced at least one usable zone; the other 17 were cloudy across the whole AOI. Rows per date range from 21,641 to 627,827.
+
+Index distributions are physically plausible. NDVI p1 to p99 spans 0.143 to 0.923, NDRE 0.093 to 0.815, NDWI minus 0.414 to 0.525. Three rows in 17.9 million sit at the degenerate limits of plus or minus one, which is what a normalised difference returns when one band reads zero; they are recorded, not clipped.
+
+201 of the 3,445 selected fields ended up with no zones at all, because the 30m inward buffer consumes a narrow or small field entirely. 3,244 fields carry zones.
+
+### Cross-check against Step 0
+
+The database was built by a different code path from the Step 0 gate, so the two are an independent check on each other.
+
+| statistic | Step 0, 10m pixels, whole county | Database, 30m zones, restricted AOI |
+|---|---|---|
+| median clear observations | 25 | 26 |
+| p75 | 27 | 28 |
+| p90 | 29 | 29 |
+| p10 | 12 | 21 |
+| overall clear fraction | 41.0% | 41.8% |
+
+The upper quantiles and the overall clear fraction agree. The p10 deliberately does not: Step 0 measured the whole county including the single-orbit stripe, which is where its 12 came from, and the database covers only the doubly covered AOI. The disappearance of that tail is independent confirmation that the restriction in `DESIGN.md` D18 did what it was specified to do.
+
+### Bugs found by running, that the review documents did not catch
+
+Recorded because they are the argument for the build order, not incidental.
+
+1. **Masked pixels written as zero.** Earth Engine writes masked pixels as 0 and omits the GeoTIFF nodata tag unless the export asks for one, so 51.7% of the first NDVI band was a literal zero and a masked read masked nothing. Fixed on the export side with a declared sentinel and on the read side by refusing any raster without a nodata tag.
+2. **Two absent markers in one file.** Earth Engine fills the gap between the export region and the raster bounding box with 0 rather than the declared nodata, so 255,996 pixels carried a second, undeclared absent marker. Field indices start at 1, so a non-positive field id now means absent.
+3. **Stale duplicate downloads.** Earth Engine writes a new Drive file per export rather than overwriting, so the corrected exports downloaded as the broken versions they were meant to replace. This masked the fix for finding 1. The fetcher now keeps the newest file of each name.
+4. **Field numbering built twice.** The field raster and the lookup table were produced by separate Earth Engine calls over a collection with no guaranteed iteration order, which could have pointed every zone at the wrong field with nothing to raise on. Both now share one ordering, sorted by CSBID.
+5. **The long intermediate did not fit in memory.** A season is 26.2 million rows in long form and about 3.1 GB in pandas, and the first round trip was killed by the OS. The cost was the shape: the long form stores the index name as a string on every row, duplicating the band name and tripling the row count. `melt` now streams one wide frame per date straight to Parquet, so peak memory is one date regardless of season count.
+
 ## Step 1 onward
 
 `[TBD]`. Exports for 2018, 2019, and 2021 through 2025 not yet queued. Zone size comparison at 10m against 30m not yet measured.
