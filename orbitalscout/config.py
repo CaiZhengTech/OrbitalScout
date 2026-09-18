@@ -152,3 +152,17 @@ MIN_PRIOR_YEARS = 3
 FEATURE_BINS = (0, 6)
 GAP_BINS = (7, 7)
 LABEL_BINS = (8, 11)
+
+# The fixed absolute scouting budget, in zones, that SPEC Section 10 delegates
+# to this file. A 30m zone is 0.222 acres, so 20 zones is 4.45 acres, roughly
+# 9% of an average field-year. Derived from one hour of in-field time: stops at
+# 2 to 3 minutes each, plus a nearest-neighbour walk between scattered stops in
+# a 50 acre field at canopy walking pace, which lands at 15 to 20 zones. The top
+# of that band is taken because precision@k falls as k grows, so rounding up
+# makes the headline metric harder to pass. Step 4, Decision 9.
+SCOUTING_BUDGET_ZONES = 20
+
+# Every metric is reported at the absolute budget above and at these fractions
+# of field area, for comparability with how precision@k is usually quoted.
+# SPEC Section 10.
+EVAL_FRACTIONS = (0.05, 0.10, 0.20)
