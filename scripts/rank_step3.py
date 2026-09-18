@@ -50,7 +50,7 @@ def main():
     held = ", ".join(str(y) for y in bb.HELD_OUT)
     features = con.execute(f"""
         SELECT zone_id, field_id, year, cdl_code, feature_ndvi, feature_bin
-        FROM read_parquet('{bb.OUT.as_posix()}/feature_*.parquet')
+        FROM read_parquet('{bb.chunks('feature')}')
         WHERE year IN ({held})
     """).df()
     print(f"features for held-out years: {len(features):,} zone-years")
@@ -107,7 +107,7 @@ def main():
         n, pearson, spearman = con.execute(f"""
             WITH standing AS (
                 SELECT zone_id, avg(rel_ndvi) AS persistent
-                FROM read_parquet('{bb.OUT.as_posix()}/baseline_*.parquet')
+                FROM read_parquet('{bb.chunks('baseline')}')
                 WHERE year IN ({years}) AND bin BETWEEN {lo} AND {hi}
                   AND rel_ndvi IS NOT NULL
                 GROUP BY zone_id
