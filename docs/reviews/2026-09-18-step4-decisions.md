@@ -273,3 +273,73 @@ meaningless score. This is the split rule applied to resampling.
    2 to 7 by silhouette on prior-year mean index only, never on the target year,
    so the commercial comparison is held to the same temporal rule as our own
    ranker.
+
+---
+
+## Amendment, same day, after the harness ran
+
+Three decisions were forced by the run itself and are recorded here rather than
+folded silently into the code.
+
+### Decision 11: B2 is reported for two periods, and the harder one is the headline
+
+`SPEC.md` Section 10 names B2's method and not its period. The first
+implementation clustered prior years only, which is a static multi-year
+management zone map and is a reasonable reading.
+
+It is also a handicapped one. S1 reads the current season. B1a and B1b having no
+current-season data is the entire point of a persistence null, so that asymmetry
+is the experiment. But commercial platforms ship in-season index maps as well as
+static zone maps, so a history-only B2 is a commercial baseline denied the input
+its real counterpart has, and beating it would prove less than it appears to.
+
+Both variants now run. The difference is a third of the headline: lift of S1 at
+the 20-zone budget is 2.145 over the historical B2 and 1.416 over the in-season
+one. The in-season figure is the reported one.
+
+B2 is also taken at its best k, which measured out at 7 in every cell of every
+table. Choosing a baseline's hyperparameter after seeing results is normally
+cheating; here it runs in the baseline's favour, so it makes the claim
+conservative rather than flattering.
+
+### Decision 12: the evaluated population may not depend on any ranking
+
+`strict_subset` first sized the budget by cutting a ranking, which crashed
+because it was handed an unranked frame. The crash was the cheap part. The
+defect it exposed is that the population being measured would have been an
+output of the thing being measured, even though every method would have produced
+the same subset, because the budget covers a field-year or does not regardless
+of order.
+
+It now sizes the budget from field-year counts alone, through
+`rank.budget_size`, and a test pins that function to what `rank.select_budget`
+actually selects so two definitions of one budget cannot drift apart.
+
+The exclusion turned out smaller than Decision 10 expected: 18.5% of field-years
+but only 0.9% of zone-years, moving S1's precision@20 by 6.7% and its lift over
+B1b by 2.9%. Micro-averaging over selected zones already downweights small
+field-years. Both populations are still reported at every budget, because that
+was pre-committed and because the size of a correction is not a reason to stop
+showing it.
+
+### Decision 13: the chunked Parquet glob
+
+Not an evaluation decision, but it surfaced here and is worth the record.
+`data/baseline/` holds the ten chunk files of each Step 2 output and also the
+outputs of `scripts/step2_diagnostics.py`. `label_*.parquet` matches
+`label_noevent_*.parquet`, reading every zone-year twice: 20 files and
+11,163,605 rows against the correct 10 files and 5,581,563.
+
+Nothing published was affected. The Step 2 gate ran at 13:44 and the diagnostics
+wrote at 13:46, so `RESULTS.md` carries the clean counts, and re-running the gate
+with the fix reproduces them exactly. That is timing, not care. Every reader now
+goes through one `build_baseline.chunks` helper, and a test greps every script
+for a bare chunked glob on a `read_parquet` line.
+
+### What the results changed about the spec
+
+Nothing. Section 10 is unedited. Its pre-registered prediction that B1a would
+score "at or near chance" on the primary label did not survive the data, B1a
+reaching lift 1.47 over random, and that is recorded in `RESULTS.md` as a failed
+prediction rather than repaired in the spec. The direction of the prediction
+held; its magnitude did not.
