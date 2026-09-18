@@ -91,10 +91,12 @@ def _field_stats_view(con, medians):
 
 
 def _zone_views(con, min_field_clear_frac):
+    first = INDICES[0]
     relatives = ", ".join(f"b.{name} - s.med_{name} AS rel_{name}" for name in INDICES)
     con.execute(f"""
         CREATE OR REPLACE VIEW relative_obs AS
         SELECT b.zone_id, b.field_id, b.year, b.date, b.bin, b.cdl_code, {relatives},
+               b.{first} AS level_{first},
                EXISTS (
                    SELECT 1 FROM known_events e
                    WHERE b.date BETWEEN e.start_date AND e.end_date
@@ -113,7 +115,7 @@ def _zone_views(con, min_field_clear_frac):
     con.execute(f"""
         CREATE OR REPLACE VIEW zone_year_bin AS
         SELECT zone_id, field_id, year, bin, any_value(cdl_code) AS cdl_code,
-               {aggregates}, count(*) AS n_obs
+               {aggregates}, avg(level_{first}) AS level_{first}, count(*) AS n_obs
         FROM relative_obs
         GROUP BY zone_id, field_id, year, bin
     """)
@@ -166,7 +168,7 @@ def _label_baseline_view(con):
     con.execute(f"""
         CREATE OR REPLACE VIEW label_baseline AS
         SELECT zone_id, field_id, year, bin, cdl_code, n_obs, {rels}, {baselines},
-               n_label_years, {residuals}
+               level_{first}, n_label_years, {residuals}
         FROM (
             SELECT *, {loo},
                    count(rel_{first}_clean) OVER z
@@ -202,6 +204,11 @@ def outcome_views(con, min_prior_years=config.MIN_PRIOR_YEARS,
 
     zone_year_label: mean NDVI residual over supported cells in the label window,
         against the leave-one-year-out baseline, with the number of cells used.
+        Also carries `level_ndvi`, the raw index over the same cells with no
+        baseline subtracted, which is the secondary label of SPEC Section 10.
+        Both labels sit on one view so they cover exactly the same zone-years;
+        two populations would make "reported under both labels" a comparison
+        of different things.
     zone_year_feature: NDVI residual in the latest supported cell in the feature
         window, against the strictly prior baseline, with the bin it came from.
 
@@ -214,7 +221,8 @@ def outcome_views(con, min_prior_years=config.MIN_PRIOR_YEARS,
     con.execute(f"""
         CREATE OR REPLACE VIEW zone_year_label AS
         SELECT zone_id, field_id, year, any_value(cdl_code) AS cdl_code,
-               avg(label_residual_ndvi) AS label_ndvi, count(*) AS n_label_cells
+               avg(label_residual_ndvi) AS label_ndvi,
+               avg(level_ndvi) AS level_ndvi, count(*) AS n_label_cells
         FROM label_baseline
         WHERE bin BETWEEN {label_lo} AND {label_hi} AND n_label_years >= {floor}
         GROUP BY zone_id, field_id, year
