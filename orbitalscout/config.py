@@ -153,6 +153,11 @@ FEATURE_BINS = (0, 6)
 GAP_BINS = (7, 7)
 LABEL_BINS = (8, 11)
 
+# The year holdout rolls across the last three seasons, each evaluated
+# separately and reported as a spread, so a year that happened to be easy
+# cannot carry the result. SPEC Section 10.
+HELD_OUT_YEARS = YEARS[-3:]
+
 # The fixed absolute scouting budget, in zones, that SPEC Section 10 delegates
 # to this file. A 30m zone is 0.222 acres, so 20 zones is 4.45 acres, roughly
 # 9% of an average field-year. Derived from one hour of in-field time: stops at
