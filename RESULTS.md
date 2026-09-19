@@ -755,9 +755,106 @@ The feature table change does ship: `zone_year_feature` now carries all three re
 
 Two signals measured, two cut. Rung 1 still stands alone.
 
-## Step 5, S4 onward
+## Step 5, S4 and S5: answered by one probe, neither built
 
-`[TBD]`. S4 velocity not started.
+Run with `python scripts/step5_trajectory_probe.py` on 2026-09-19. Decisions and the prediction are in `docs/reviews/2026-09-19-step5-trajectory-probe.md`, committed before the run.
+
+S4 velocity and S5 persistence are different summaries of one assumption: that a zone's within-season trajectory carries information beyond the latest residual S1 already uses. Rather than build each, measure and cut each, the assumption was tested once on data already on disk.
+
+**It does not hold. Neither signal was built.**
+
+### The trajectory is dense, which was worth checking first
+
+Across 2,088,521 held-out zone-years: 52.1% have all seven feature bins supported, 88.2% have six or seven, 99.8% have three or more, and **every one has at least two**, so a slope is always defined. Median seven bins, mean 6.46.
+
+An earlier concern that S4 and S5 would need a finer per-date grain than the pipeline produces was wrong. The 200 GDD bins already are the time series. Measuring settled it in one query.
+
+### Four summaries of the same residual series
+
+| summary | definition | stands for |
+|---|---|---|
+| `latest` | residual in the highest supported bin | S1 as it ships |
+| `mean` | mean residual across supported bins | a simple alternative |
+| `slope` | OLS slope against bin, negated | **S4 velocity** |
+| `n_below` | count of bins with a negative residual | **S5 persistence** |
+
+`latest` recomputed from the trajectory has Spearman 1.000000 against the shipped S1, confirming the probe reads the same feature by another route.
+
+### Lift over B1b, primary label
+
+| budget | S1 | `latest` | `mean` | `slope` | `n_below` |
+|---|---|---|---|---|---|
+| 20 zones | 1.565 | 1.565 | 1.173 | 1.445 | 0.748 |
+| 5% of field | 1.837 | 1.837 | 1.317 | 1.664 | 0.692 |
+| 10% of field | 1.688 | 1.688 | 1.227 | 1.555 | 0.757 |
+| 20% of field | 1.469 | 1.469 | 1.125 | 1.397 | 0.852 |
+
+Combined with S1 at rung 2, change against S1 alone:
+
+| budget | `+mean` | `+slope` | `+n_below` |
+|---|---|---|---|
+| 20 zones | -10.9% | **-2.0%** | -15.3% |
+| 5% of field | -12.2% | **-2.7%** | -17.7% |
+| 10% of field | -12.0% | **-2.1%** | -19.3% |
+| 20% of field | -10.1% | **-1.2%** | -16.5% |
+
+Nothing helps. S4's proxy costs about 2%, S5's about 17%.
+
+### The number that generalises
+
+Partial rank correlation with the label, controlling for `latest`:
+
+| summary | r(x, label) | r(x, `latest`) | **partial** |
+|---|---|---|---|
+| `mean` | 0.154 | 0.637 | -0.127 |
+| `slope` | 0.338 | 0.872 | **0.007** |
+| `n_below` | 0.115 | 0.543 | -0.120 |
+| `latest` | 0.384 | 1.000 | - |
+
+**Velocity contributes 0.007 once the ending level is known.** That is the result that kills S4 generally rather than in one implementation. `slope` correlates 0.338 with the label on its own, which looks promising, but it correlates 0.872 with `latest`: it is mostly a restatement of where the zone ended up, not an independent reading of how it got there. No cleverer velocity feature recovers information that is not there.
+
+### The predictions, three of four
+
+| prediction | outcome |
+|---|---|
+| 1. `latest` is the strongest of the four alone | **held** - 1.565 against 1.445, 1.173, 0.748 |
+| 2. `mean` lands within 10% of `latest` | **FAILED** - it is 25.0% worse |
+| 3. neither `slope` nor `n_below` improves on S1 | **held**, all four budgets |
+| 4. partial correlation of `slope` below 0.05 | **held** - 0.007 |
+
+**Why prediction 2 was wrong, and it matters.** The reasoning was that bins are phenology-aligned observations of one zone in one season, so they should be highly correlated, the same redundancy that sank S3. Measured, `mean` correlates only **0.637** with `latest`, not the 0.9 the argument assumed. The bins are genuinely different measurements: a zone's standing at emergence is not its standing at VT.
+
+So the trajectory is real information, and it is real information that does not help. That is a sharper finding than "the bins are redundant" would have been. Averaging over the window mixes early-season bins into a prediction about grain fill and dilutes the recent reading that actually carries the signal, which is why `mean` loses 25% rather than matching.
+
+### What this replaces
+
+Two build-measure-cut cycles, with two more write-ups, reaching the same place. The probe cost one script and one run.
+
+It does not weaken the admission rule. Anything that had survived here would still have been built test-first and still had to beat B1b. The probe decided what was worth building, and the answer was neither.
+
+### On S6, and a recommendation
+
+S6 is the soil-context residual: the residual after regressing index on SSURGO drainage class and slope, intended to separate "bad because always sandy" from "bad beyond soil explanation."
+
+**That job is already done, and it was measured at Step 3.** The within-field relative baseline of D17 removes permanent standing: urgency in year t correlates with persistent standing measured from later years at Pearson 0.002 and 0.001. There is no soil map left in the residual for S6 to subtract. S6 also requires ingesting SSURGO, which nothing else needs.
+
+The recommendation is to close the ablation here and move to the demo, which `CLAUDE.md` names as the last step. Six signals were specified; two were built and cut on measurement, two were answered by a probe, and the sixth is made redundant by a measurement already in `RESULTS.md`. Rung 1 stands alone, and the ladder never earned rung 2.
+
+## Step 5 summary
+
+| signal | outcome | basis |
+|---|---|---|
+| S1 temporal anomaly | **ships** | beats B1b by 1.47 to 1.84 |
+| S2 spatial anomaly | cut | -9.5% to -11.8% on lift over B1b |
+| S3 multi-index divergence | cut | -19.5% to -32.1% |
+| S4 velocity | not built | partial correlation 0.007 beyond `latest` |
+| S5 persistence | not built | -15.3% to -19.3% as `n_below` |
+| S6 soil-context residual | not built | D17 already removes the soil map, Pearson 0.002 |
+
+## Demo
+
+`[TBD]`. Static export and MapLibre not started.
+
 
 
 
