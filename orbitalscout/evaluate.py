@@ -36,8 +36,13 @@ from . import rank
 KEYS = ["field_id", "year"]
 
 
-def strict_subset(ranked, zones=None, fraction=None, label_column="is_positive"):
+def strict_subset(zone_years, zones=None, fraction=None):
     """Drop field-years the budget covers in full. Step 4, Decision 10.
+
+    Takes an unranked frame and sizes the budget from field-year counts alone,
+    because the evaluated population must be the same for every method. Deriving
+    it from a ranking would make the population an output of the thing being
+    measured, even though the answer would come out the same.
 
     Where every zone is selected, precision equals the base rate whatever the
     ranking does: a five-zone field-year under a twenty-zone budget scores the
@@ -50,11 +55,10 @@ def strict_subset(ranked, zones=None, fraction=None, label_column="is_positive")
     asserted. A fractional budget leaves a strict subset for any field-year of
     two zones or more, so this only bites on the absolute budget.
     """
-    selected = rank.select_budget(ranked, zones=zones, fraction=fraction)
-    sizes = ranked.groupby(KEYS).size()
-    budgets = selected.groupby(KEYS).size()
-    keep = sizes.index[budgets.reindex(sizes.index, fill_value=0) < sizes]
-    return ranked[ranked.set_index(KEYS).index.isin(keep)].reset_index(drop=True)
+    sizes = zone_years.groupby(KEYS).size()
+    budgets = rank.budget_size(zone_years, zones=zones, fraction=fraction)
+    keep = sizes.index[budgets < sizes]
+    return zone_years[zone_years.set_index(KEYS).index.isin(keep)].reset_index(drop=True)
 
 
 def metrics(ranked, zones=None, fraction=None, label_column="is_positive"):

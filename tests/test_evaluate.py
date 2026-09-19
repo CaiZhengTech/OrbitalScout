@@ -111,6 +111,22 @@ def test_the_strict_subset_drops_exactly_the_field_years_the_budget_swallows():
     assert evaluate.metrics(kept, zones=20)["n_field_years"] == 1
 
 
+def test_the_budget_size_matches_what_the_budget_actually_selects():
+    """Two definitions of one budget would drift apart silently.
+
+    `strict_subset` sizes the budget from field-year counts alone, so the
+    evaluated population does not depend on how any method ranked the zones.
+    `select_budget` sizes it by cutting a ranking. They must agree.
+    """
+    from orbitalscout import rank
+    frame = ranked({(1, 2024): [1] + [0] * 4, (2, 2024): [1] + [0] * 29,
+                    (3, 2024): [1, 0], (4, 2024): [1] + [0] * 19})
+    for kwargs in ({"zones": 20}, {"fraction": 0.05}, {"fraction": 0.20}):
+        predicted = rank.budget_size(frame, **kwargs)
+        actual = rank.select_budget(frame, **kwargs).groupby(["field_id", "year"]).size()
+        assert predicted.to_dict() == actual.to_dict(), kwargs
+
+
 def test_a_fractional_budget_always_leaves_a_strict_subset():
     """ceil(0.20 * n) is below n for every field-year of two zones or more."""
     frame = ranked({(1, 2024): [1, 0], (2, 2024): [1] + [0] * 9})
