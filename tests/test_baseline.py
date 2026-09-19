@@ -344,6 +344,31 @@ def test_label_is_the_mean_residual_over_supported_cells_in_the_label_window():
     assert label == pytest.approx(((0.2 - 0.1) + (0.3 - 0.1)) / 2)
 
 
+def test_label_view_also_carries_the_raw_level_for_the_secondary_label():
+    """SPEC Section 10: the secondary label is the bottom decile of raw index.
+
+    Carried on the same view as the residual so both labels cover exactly the
+    same zone-years. Two populations would make "reported under both labels"
+    a comparison of different things.
+
+    Zone 101 reads 0.7 in bin 8 and 0.8 in bin 11, the two supported cells in
+    the window, so the level is their mean. The residual subtracts a baseline;
+    the level does not.
+    """
+    values = five_years_then(
+        {(2022, 7): 0.9, (2022, 8): 0.7, (2022, 11): 0.8, (2022, 12): 0.2,
+         (2021, 9): 0.6, (2022, 9): 0.95},
+        bins=(7, 8, 11, 12),
+    )
+    con = outcomes(build(make_con(*staged_history(values))))
+    level, label = con.execute(
+        "SELECT level_ndvi, label_ndvi FROM zone_year_label "
+        "WHERE zone_id = 101 AND year = 2022"
+    ).fetchone()
+    assert level == pytest.approx((0.7 + 0.8) / 2)
+    assert level != pytest.approx(label), "the level must not subtract a baseline"
+
+
 def test_feature_is_the_residual_in_the_latest_supported_vegetative_cell():
     """Bin 6 lacks support and bin 7 is outside the window, so bin 5 is latest."""
     values = five_years_then(

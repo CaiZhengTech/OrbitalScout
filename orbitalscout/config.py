@@ -153,6 +153,18 @@ FEATURE_BINS = (0, 6)
 GAP_BINS = (7, 7)
 LABEL_BINS = (8, 11)
 
+# The primary and secondary labels are the bottom decile within field-year.
+# Fixed by SPEC Section 10 before any data was pulled, which is what makes the
+# base rate 10% by construction. It is 10% only in the limit: the positive
+# count rounds up, so an eleven-zone field-year reaches 18.2%. Step 4,
+# Decision 10.
+LABEL_FRACTION = 0.10
+
+# The year holdout rolls across the last three seasons, each evaluated
+# separately and reported as a spread, so a year that happened to be easy
+# cannot carry the result. SPEC Section 10.
+HELD_OUT_YEARS = YEARS[-3:]
+
 # The fixed absolute scouting budget, in zones, that SPEC Section 10 delegates
 # to this file. A 30m zone is 0.222 acres, so 20 zones is 4.45 acres, roughly
 # 9% of an average field-year. Derived from one hour of in-field time: stops at
