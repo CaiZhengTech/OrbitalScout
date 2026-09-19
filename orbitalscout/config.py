@@ -153,6 +153,11 @@ FEATURE_BINS = (0, 6)
 GAP_BINS = (7, 7)
 LABEL_BINS = (8, 11)
 
+# A neighbourhood mean below this many of the eight surrounding cells is not a
+# local expectation, it is one or two zones. Same floor and reasoning as
+# MIN_PRIOR_YEARS. Step 5, Decision 15.
+MIN_NEIGHBOURS = 3
+
 # The primary and secondary labels are the bottom decile within field-year.
 # Fixed by SPEC Section 10 before any data was pulled, which is what makes the
 # base rate 10% by construction. It is 10% only in the limit: the positive

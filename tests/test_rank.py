@@ -88,3 +88,78 @@ def test_exactly_one_of_zones_or_fraction_is_required():
         rank.select_budget(ranked)
     with pytest.raises(ValueError, match="exactly one"):
         rank.select_budget(ranked, zones=3, fraction=0.1)
+
+
+# --- rung 2, the weighted sum of z-scored signals -------------------------
+
+def two_signals(per_field):
+    """{(field, year): [(s1, s2), ...]} into a frame, one row per zone."""
+    rows = []
+    for (field_id, year), pairs in per_field.items():
+        rows += [(f"f{field_id}z{i}", field_id, year, a, b)
+                 for i, (a, b) in enumerate(pairs)]
+    return pd.DataFrame(rows, columns=["zone_id", "field_id", "year", "s1", "s2"])
+
+
+def test_z_scores_are_computed_within_each_field_year_separately():
+    """Pooling would let a field's overall level decide its zones' z-scores.
+
+    Field 1 sits at 1, 2, 3 and field 2 at 101, 102, 103. Within field they are
+    the same shape and must get the same z-scores. Pooled, field 2 would be
+    three standard deviations up and its zones nearly tied.
+    """
+    frame = two_signals({(1, 2024): [(1.0, 0)], (2, 2024): [(101.0, 0)]})
+    frame = two_signals({(1, 2024): [(1.0, 0), (2.0, 0), (3.0, 0)],
+                    (2, 2024): [(101.0, 0), (102.0, 0), (103.0, 0)]})
+    z = rank.zscore_within_field(frame, "s1")
+    assert list(z[:3].round(6)) == list(z[3:].round(6))
+
+
+def test_a_z_score_has_zero_mean_and_unit_spread_in_its_field_year():
+    frame = two_signals({(1, 2024): [(1.0, 0), (2.0, 0), (3.0, 0), (4.0, 0)]})
+    z = rank.zscore_within_field(frame, "s1")
+    assert z.mean() == pytest.approx(0.0)
+    assert z.std() == pytest.approx(1.0)
+
+
+def test_a_field_year_with_no_spread_scores_zero_rather_than_dividing_by_zero():
+    """Every zone equal carries no information; it must not raise or go null."""
+    frame = two_signals({(1, 2024): [(0.5, 0), (0.5, 0), (0.5, 0)],
+                    (2, 2024): [(0.7, 0)]})
+    z = rank.zscore_within_field(frame, "s1")
+    assert (z == 0).all(), "a flat field-year, and a single-zone one, must score 0"
+
+
+def test_z_scoring_does_not_change_a_single_signals_ranking():
+    """It is a monotone transform inside the ranking unit, so rung 1 is safe."""
+    frame = two_signals({(1, 2024): [(0.3, 0), (-0.1, 0), (0.9, 0)],
+                    (2, 2024): [(5.0, 0), (1.0, 0)]})
+    frame["z"] = rank.zscore_within_field(frame, "s1")
+    plain = rank.rank_within_field(frame, score_column="s1")["zone_id"].tolist()
+    zed = rank.rank_within_field(frame, score_column="z")["zone_id"].tolist()
+    assert plain == zed
+
+
+def test_a_missing_score_stays_missing_through_the_z_score():
+    frame = two_signals({(1, 2024): [(0.3, 0), (np.nan, 0), (0.9, 0)]})
+    z = rank.zscore_within_field(frame, "s1")
+    assert pd.isna(z.iloc[1])
+    assert z.notna().sum() == 2
+
+
+def test_the_combination_is_the_equal_weight_sum_of_z_scores():
+    """Rung 2 takes no weights. Searching them is training and belongs to rung 3."""
+    frame = two_signals({(1, 2024): [(1.0, 3.0), (2.0, 2.0), (3.0, 1.0)]})
+    got = rank.combine(frame, ["s1", "s2"])
+    expected = (rank.zscore_within_field(frame, "s1")
+                + rank.zscore_within_field(frame, "s2"))
+    assert got.tolist() == pytest.approx(expected.tolist())
+    assert got.tolist() == pytest.approx([0.0, 0.0, 0.0]), "s1 and s2 cancel exactly here"
+
+
+def test_the_combination_is_unscored_when_any_component_is_missing():
+    """Falling back to the signals that survive would score two populations."""
+    frame = two_signals({(1, 2024): [(1.0, 3.0), (2.0, np.nan), (3.0, 1.0)]})
+    got = rank.combine(frame, ["s1", "s2"])
+    assert pd.isna(got.iloc[1])
+    assert got.notna().sum() == 2

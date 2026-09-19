@@ -18,6 +18,12 @@ Every signal returns a score where **larger means more urgent to visit**, so
 ranking is always a descending sort and no signal needs a special branch.
 """
 
+import numpy as np
+import pandas as pd
+
+from . import config
+from .ingest import melt
+
 
 def s1_temporal_anomaly(zone_features, context=None):
     """How far a zone sits below its own phenology-aligned history.
@@ -36,3 +42,67 @@ def s1_temporal_anomaly(zone_features, context=None):
 
 
 SIGNALS = (s1_temporal_anomaly,)
+
+
+# Grid neighbours are arithmetic on the packed zone id: east and west shift by
+# the stride, north and south by one. No spatial join, no geometry library.
+NEIGHBOUR_OFFSETS = tuple(
+    dcol * melt._STRIDE + drow
+    for dcol in (-1, 0, 1) for drow in (-1, 0, 1)
+    if (dcol, drow) != (0, 0)
+)
+
+
+def neighbour_mean(zone_years, value_column, min_neighbours=config.MIN_NEIGHBOURS):
+    """Mean of the eight surrounding cells, within the same field-year.
+
+    Looked up under the **target's own field id**, so a neighbouring cell that
+    belongs to a different field simply does not match. That is not a tidiness
+    rule: the next field over is a different crop on a different planting date,
+    and comparing across it would undo the within-field framing the whole
+    project rests on.
+
+    A zone is never its own neighbour. Including itself would pull the
+    neighbourhood toward the very anomaly being measured and shrink it.
+
+    Fewer than `min_neighbours` present and the result is null, because a mean
+    over one or two zones is not a local expectation. Same floor and the same
+    reasoning as `MIN_PRIOR_YEARS`.
+    """
+    key = [zone_years["field_id"], zone_years["year"], zone_years["zone_id"]]
+    values = pd.Series(
+        zone_years[value_column].to_numpy(),
+        index=pd.MultiIndex.from_arrays(key),
+    )
+    total = np.zeros(len(zone_years))
+    count = np.zeros(len(zone_years), dtype=int)
+    for offset in NEIGHBOUR_OFFSETS:
+        found = values.reindex(pd.MultiIndex.from_arrays(
+            [key[0], key[1], key[2] + offset]
+        )).to_numpy()
+        present = ~np.isnan(found)
+        total[present] += found[present]
+        count[present] += 1
+
+    mean = np.divide(total, count, out=np.full(len(zone_years), np.nan),
+                     where=count >= int(min_neighbours))
+    return pd.Series(mean, index=zone_years.index)
+
+
+def s2_spatial_anomaly(zone_features, context=None):
+    """How far a zone sits below the neighbours it shares a field-year with.
+
+    A **level** signal, deliberately. Subtracting a temporal baseline would make
+    this a spatially local restatement of S1 and would lose the thing SPEC
+    Section 7 wants from it: a score for a zone with no usable history.
+
+    The cost of that is known in advance and recorded in the Step 5 decision
+    record. A level signal partly reproduces the permanent soil map, since a
+    patch that is always sandy is always below its neighbours, and removing the
+    soil map is what D17 is for. Whether it pays for itself is the admission
+    rule's decision, not this function's.
+
+    `neighbour_level` is attached upstream, the way `prior_level` is for B1a,
+    because the spatial work is feature assembly rather than scoring.
+    """
+    return zone_features["neighbour_level"] - zone_features["season_level"]
