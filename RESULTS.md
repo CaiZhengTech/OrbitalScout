@@ -602,8 +602,83 @@ The fair comparison costs a third of the headline. The weaker number is the one 
 - Uncertainty intervals are not reported. Where they are added they must be resampled over fields, never zones: a zone-level bootstrap over 1.8 million spatially autocorrelated rows would produce an interval tight enough to be a lie.
 - Timing, for reproduction rather than as a result: the first run took about twelve minutes in `load` against a cold page cache and eight seconds warm. Scoring is about eleven minutes, almost all of it the twelve k-means sweeps, and is cached in `data/eval/scored.parquet`.
 
-## Step 5 onward
+## Step 5, S2 spatial anomaly: cut
 
-`[TBD]`. Signals S2 through S6 not started. The project is shippable as of Step 4.
+Run with `python scripts/step5_s2.py` on 2026-09-18. The prediction was committed in `docs/reviews/2026-09-18-step5-s2-prediction.md` before any S2 code existed.
+
+**S2 did not improve lift over persistence and was cut.** It is implemented and tested, and it is not in `SIGNALS`.
+
+### Population
+
+1,819,058 zone-years, 99.7% of the Step 4 comparison population. The 6,338 lost are zones with fewer than three neighbours inside their own field-year. 72.0% of zones have all eight neighbours, so the floor costs almost nothing. Every method below is measured on this same set, so rung 1 and rung 2 are not scored over different zones. S1's numbers therefore differ from the Step 4 table in the fourth decimal.
+
+### The admission rule
+
+Primary label. The question is whether adding S2 to S1 improves lift over the B1b persistence null.
+
+| budget | S1 over B1b | S1+S2 over B1b | change |
+|---|---|---|---|
+| 20 zones | 1.576 | 1.405 | **-10.8%** |
+| 5% of field | 1.846 | 1.629 | **-11.8%** |
+| 10% of field | 1.695 | 1.504 | **-11.3%** |
+| 20% of field | 1.473 | 1.332 | **-9.5%** |
+
+Worse at every budget, by about a tenth. Not marginal, not a coin flip.
+
+### S2 on its own
+
+| budget | precision | of ceiling | lift over random | lift over B1b |
+|---|---|---|---|---|
+| 20 zones | 0.2022 | 0.309 | 1.99 | 1.017 |
+| 5% of field | 0.2626 | 0.263 | 2.58 | 1.116 |
+| 10% of field | 0.2158 | 0.218 | 2.12 | 1.052 |
+| 20% of field | 0.1689 | 0.335 | 1.66 | 0.992 |
+
+**S2 alone is roughly the persistence null.** Lift over B1b runs 0.99 to 1.12. A spatial level signal and a temporal persistence null are, on this label, about equally good, which is what two different views of the same permanent structure should look like.
+
+On the secondary level label S2 rises to lift 2.61 over random at the 20-zone budget against 1.99 on the residual label, and sits level with the in-season k-means baseline (0.2648 against 0.2659). A level signal scores levels. That is the whole story.
+
+### The predictions
+
+All three held, which is worth stating plainly next to Step 4, where the spec's own pre-registered prediction about B1a did not.
+
+| prediction | outcome |
+|---|---|
+| S2 alone lands at lift 1.2 to 2.0 over random at the 20-zone budget | **held, barely.** Measured 1.99, at the top edge. It would have failed at any tighter budget: 2.58 at k = 5% |
+| S2 does relatively better on the level label than the residual label | **held.** 2.61 against 1.99 |
+| S1 plus S2 does not improve lift over B1b | **held, at all four budgets** |
+
+### The mechanism check, and what it found instead
+
+Prediction 4 said that if the combination helped, the gain should concentrate in zones whose baseline rests on the fewest prior years. It did not help, so that test was not needed for its original purpose. Run anyway, it says something more useful:
+
+| prior years behind the baseline | zone-years | S1 precision@20 | S1+S2 precision@20 | change |
+|---|---|---|---|---|
+| 3 | 973 | 0.2214 | 0.1985 | -10.3% |
+| 4 | 46,917 | 0.2378 | 0.2148 | -9.7% |
+| 5 | 558,753 | 0.3031 | 0.2668 | -12.0% |
+| 6 | 647,678 | 0.3283 | 0.3001 | -8.6% |
+| 7 | 564,737 | 0.2792 | 0.2452 | -12.2% |
+
+The damage is **flat across history depth**, between 9 and 12 percent everywhere with no trend. So this is not "S2 helps thin-history zones and hurts the rest." S2 dilutes S1 uniformly.
+
+### The finding that matters more than the verdict
+
+Look at the first row. **Only 973 zone-years out of 1.8 million rest on the minimum three prior years.** `SPEC.md` Section 7 justifies S2 as detecting "first-year problems with no history," but a zone with no history is excluded from this evaluation by the `MIN_PRIOR_YEARS` support floor before S2 is ever consulted.
+
+**S2's advertised niche is empty by construction here.** It was measured only on the population where S1 already works, and there it is a dilutant. Whether it earns its place on zones below the support floor is a different experiment and is not answered by this one, because that population was defined away at Step 2.
+
+That is not a reason to admit S2 now. It is a reason to be precise about what was and was not tested, and it is recorded as issue [#20](https://github.com/CaiZhengTech/OrbitalScout/issues/20).
+
+### What this changes
+
+Nothing ships. `SIGNALS` remains S1 alone and a test asserts it. `signals.s2_spatial_anomaly`, `signals.neighbour_mean` and the rung 2 machinery in `rank.py` stay in the repository with their tests, because the null result is a reported finding and the code behind a reported finding has to be inspectable.
+
+Rung 2 was exercised and did not beat rung 1. The complexity ladder stops at rung 1 for now.
+
+## Step 5, S3 onward
+
+`[TBD]`. S3 multi-index divergence not started.
+
 
 

@@ -11,6 +11,8 @@ within-field label incomparable to the ranking scored against it.
 
 import math
 
+KEYS = ["field_id", "year"]
+
 
 def rank_within_field(scored, score_column="score"):
     """Add a 1-based `rank` per field-year, best first.
@@ -62,3 +64,42 @@ def select_budget(ranked, zones=None, fraction=None):
     sizes = ranked.groupby(["field_id", "year"])["zone_id"].transform("size")
     budget = (sizes * float(fraction)).map(math.ceil).clip(lower=1)
     return ranked[ranked["rank"] <= budget].reset_index(drop=True)
+
+
+def zscore_within_field(scored, column):
+    """Standardise a score inside its own field-year.
+
+    Within field-year, for the same reason the ranking is: the unit of the
+    question is one field visit. It also keeps the statistics from pooling
+    across fields, so no field's spread informs another's and the field-blocked
+    split stays unexercised rather than quietly needed.
+
+    This uses no labels, so it cannot leak one, and inside a field-year it is a
+    monotone transform, so ranking a single signal by its z-score is the same
+    ranking as before. What it buys is that two signals become addable.
+
+    A field-year with no spread, including one holding a single zone, scores 0
+    rather than dividing by zero: every zone equal carries no information about
+    which to visit.
+    """
+    grouped = scored.groupby(KEYS)[column]
+    spread = grouped.transform("std")
+    centred = scored[column] - grouped.transform("mean")
+    return centred.div(spread).where(spread > 0, centred * 0.0)
+
+
+def combine(scored, columns):
+    """Rung 2: the equal-weight sum of z-scored signals.
+
+    No weights argument. `CLAUDE.md` puts rungs 1 and 2 at no training, and
+    searching weights is training: it would make the field-blocked split
+    load-bearing and it is the retune-until-the-number-improves move the
+    project forbids by name. Fitted weights are rung 3.
+
+    A zone missing any component is unscored. Falling back to whichever signals
+    survive would quietly score two different populations and make the
+    comparison against rung 1 meaningless.
+    """
+    parts = [zscore_within_field(scored, column) for column in columns]
+    total = sum(parts)
+    return total.where(scored[list(columns)].notna().all(axis=1))
