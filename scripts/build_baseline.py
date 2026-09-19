@@ -35,6 +35,18 @@ HELD_OUT = (2023, 2024, 2025)
 GATE_MAX_EXCLUDED = 0.20
 
 
+def chunks(name):
+    """The ten chunk files for one output, and nothing else.
+
+    Never write `name_*.parquet` by hand. Diagnostics write their own outputs
+    into this directory, so `label_*.parquet` also matches
+    `label_noevent_*.parquet` and reads every zone-year twice, once with event
+    observations excluded, with no error and a plausible row count. Found at
+    Step 4, after it had been latent since Step 2.
+    """
+    return f"{OUT.as_posix()}/{name}_[0-9][0-9].parquet"
+
+
 def connect():
     con = duckdb.connect()
     tmp = pathlib.Path("data/duckdb_tmp")
@@ -87,7 +99,7 @@ def build():
 def report_support():
     con = duckdb.connect()
     con.execute("SET memory_limit = '2GB'")
-    con.execute("CREATE VIEW b AS SELECT * FROM read_parquet('data/baseline/baseline_*.parquet')")
+    con.execute(f"CREATE VIEW b AS SELECT * FROM read_parquet('{chunks('baseline')}')")
     total = con.execute("SELECT count(*) FROM b").fetchone()[0]
     print(f"\nbaseline cells, all years: {total:,}")
 
@@ -174,8 +186,8 @@ def report_outcome_gate():
         SELECT field_id, CAST(replace(k, 'crop_', '') AS INTEGER) AS year, cdl_code
         FROM (UNPIVOT fields ON {crop_cols} INTO NAME k VALUE cdl_code)
     """)
-    con.execute(f"CREATE VIEW lab AS SELECT * FROM read_parquet('{OUT.as_posix()}/label_*.parquet')")
-    con.execute(f"CREATE VIEW fea AS SELECT * FROM read_parquet('{OUT.as_posix()}/feature_*.parquet')")
+    con.execute(f"CREATE VIEW lab AS SELECT * FROM read_parquet('{chunks('label')}')")
+    con.execute(f"CREATE VIEW fea AS SELECT * FROM read_parquet('{chunks('feature')}')")
 
     print(f"\nDecision 9 gate: at most {GATE_MAX_EXCLUDED:.0%} of eligible zone-years may lack a label,")
     print("and at most the same may lack a feature, in each held-out year.\n")
