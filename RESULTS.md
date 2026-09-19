@@ -676,9 +676,89 @@ Nothing ships. `SIGNALS` remains S1 alone and a test asserts it. `signals.s2_spa
 
 Rung 2 was exercised and did not beat rung 1. The complexity ladder stops at rung 1 for now.
 
-## Step 5, S3 onward
+## Step 5, S3 multi-index divergence: cut
 
-`[TBD]`. S3 multi-index divergence not started.
+Run with `python scripts/step5_s3.py` on 2026-09-19. The prediction was committed in `docs/reviews/2026-09-19-step5-s3-prediction.md` before any S3 code existed.
+
+**S3 did not improve lift over persistence and was cut.** It is implemented and tested, and it is not in `SIGNALS`.
+
+**Two of the four predictions failed.** Both failures are recorded below with what they got wrong.
+
+### Population
+
+1,825,396 zone-years, 100.0% of the Step 4 comparison population. S3 loses no coverage: every zone with a feature has all three indices.
+
+The feature table was rebuilt so that all three residuals come from one observation (Step 5, Decision 17). `feature_ndvi` came back **bit-identical on all 1,825,396 rows**, so S1's Step 4 numbers carry over unchanged and the two steps are directly comparable.
+
+### The admission rule
+
+Primary label. The question is whether adding S3 to S1 improves lift over the B1b persistence null.
+
+| budget | S1 over B1b | S1+S3 over B1b | change | all three as a level | vs S1 |
+|---|---|---|---|---|---|
+| 20 zones | 1.565 | 1.147 | **-26.7%** | 1.533 | -2.0% |
+| 5% of field | 1.837 | 1.247 | **-32.1%** | 1.790 | -2.6% |
+| 10% of field | 1.688 | 1.224 | **-27.5%** | 1.663 | -1.5% |
+| 20% of field | 1.469 | 1.183 | **-19.5%** | 1.467 | -0.1% |
+
+Worse at every budget, and by much more than S2 was. S3 is cut.
+
+### S3 on its own
+
+| budget | precision | lift over random | lift over B1b |
+|---|---|---|---|
+| 20 zones | 0.1258 | 1.23 | 0.628 |
+| 5% of field | 0.1391 | 1.36 | 0.586 |
+| 10% of field | 0.1283 | 1.26 | 0.621 |
+| 20% of field | 0.1149 | 1.13 | 0.671 |
+
+Barely better than random, and well under the persistence null.
+
+### The predictions, two of four wrong
+
+| prediction | outcome |
+|---|---|
+| 1. S3 alone scores **below** random, lift under 1.0 | **FAILED.** Measured 1.13 to 1.36, above random at every budget |
+| 2. NDVI cancels in S1+S3: Spearman with the early-index mean above 0.90 | **FAILED.** Measured 0.843 |
+| 3. S1+S3 does not improve lift over B1b | **held**, at all four budgets, by 19.5% to 32.1% |
+| 4. The diagnostic decides what the null means | **resolved**: the aggregation also fails, so this is a verdict on the indices, not on S3's form |
+
+**Why prediction 1 was wrong.** The argument was that S3 is loaded positively on the NDVI residual, the label is built from an NDVI residual, so S3 should rank the label backwards. Measured, the rank correlation between S3 and S1 is only **-0.136**: S3 is close to orthogonal to S1, not strongly opposed to it. Standardising each index within field-year and then averaging the two early ones dilutes the NDVI term far more than the algebra assumed, and what is left carries enough real information to sit slightly above chance rather than below it.
+
+**Why prediction 2 was wrong.** The cancellation is partial, not complete. The algebra treated `z(S3)` as if it arrived already on the same scale as `z(residual_ndvi)`, but rung 2 standardises S3 as a whole, which rescales the contrast and leaves some NDVI behind. The direction was right and the magnitude was not: S1+S3 correlates 0.843 with the early-index mean against only **0.584** with S1, so the combination is much closer to having discarded NDVI than to being S1 plus something.
+
+### Why S3 fails, measured rather than argued
+
+The three indices are largely redundant at this grain. Across 3,432,652 zone-year feature cells:
+
+| Pearson | NDVI | NDRE | NDWI |
+|---|---|---|---|
+| **NDVI** | 1.000 | 0.960 | 0.909 |
+| **NDRE** | 0.960 | 1.000 | 0.943 |
+| **NDWI** | 0.909 | 0.943 | 1.000 |
+
+Rank correlation after z-scoring within field-year is 0.934 for NDVI against NDRE and 0.857 against NDWI.
+
+That single table explains both results. Adding two indices that correlate above 0.9 with the first cannot add much, which is why the all-three level sits within 2.6% of S1. And contrasting quantities that correlate above 0.9 leaves a small residue dominated by measurement noise rather than by differential plant physiology, which is why the contrast ranks barely above chance.
+
+**Section 7's premise is not visible in this data at this grain.** The claim that NDWI moves before NDVI and NDRE before that is a statement about within-season timing. What is measured here is one residual per zone-year, taken from the latest supported cell of the feature window, and at that resolution the three indices are nearly the same measurement. Whether the premise holds at a per-date grain is a different question and this run does not answer it.
+
+### One result the other way
+
+On the **secondary** level label the all-three level beats S1: lift over B1b of 1.271 against 1.234 at the 20-zone budget, and 1.339 against 1.300 at k = 5%. Averaging three correlated measurements is a better estimate of a zone's level, which is what that label rewards. It is not a better estimate of a zone's anomaly, which is what the primary label and the admission rule ask for. The finding is reported because it was measured, not because it changes the verdict.
+
+### What this changes
+
+Nothing ships. `SIGNALS` remains S1 alone. `signals.s3_multi_index_divergence` and `signals.multi_index_level` stay with their tests.
+
+The feature table change does ship: `zone_year_feature` now carries all three residuals and selects one row explicitly, which also closed a latent inconsistency where `feature_ndvi` came from `arg_max(residual_ndvi, bin)` while `feature_bin` came from a separate `max(bin)`. Those name different cells the moment a null appears. There are no nulls today, so nothing was wrong; there was simply nothing stopping it.
+
+Two signals measured, two cut. Rung 1 still stands alone.
+
+## Step 5, S4 onward
+
+`[TBD]`. S4 velocity not started.
+
 
 
 

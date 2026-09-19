@@ -21,7 +21,7 @@ ranking is always a descending sort and no signal needs a special branch.
 import numpy as np
 import pandas as pd
 
-from . import config
+from . import config, rank
 from .ingest import melt
 
 
@@ -106,3 +106,50 @@ def s2_spatial_anomaly(zone_features, context=None):
     because the spatial work is feature assembly rather than scoring.
     """
     return zone_features["neighbour_level"] - zone_features["season_level"]
+
+
+# NDWI tracks canopy water and NDRE tracks chlorophyll; both are expected to
+# move before NDVI, which tracks biomass. SPEC Section 7's mechanism is that
+# ordering, so S3 is a directional contrast and not a symmetric spread.
+EARLY_INDICES = ("ndre", "ndwi")
+LATE_INDEX = "ndvi"
+
+
+def s3_multi_index_divergence(zone_features, context=None):
+    """How much worse the early indices read than NDVI does.
+
+    Large when NDVI still looks acceptable and water or chlorophyll do not,
+    which is the "before visible decline" case Section 7 asks for.
+
+    Each index is standardised **within field-year first**. NDWI varies over a
+    different range from NDVI, so differencing raw residuals would let the
+    wider index decide the contrast on scale alone rather than on disagreement.
+
+    Deliberately blind to level. Three indices that are all equally bad give the
+    same contrast as three that are all equally good, because agreement is S1's
+    subject and disagreement is this one's. A symmetric measure such as the
+    spread of the three was rejected: it would also fire when NDVI is the worst
+    of the three, which is not an early warning.
+
+    A zone missing any index is unscored, which needs no guard: a null survives
+    the z-score and the mean, so the contrast is null on its own. An explicit
+    check here was written first and then deleted, because mutation testing
+    showed removing it changed nothing.
+    """
+    z = {name: rank.zscore_within_field(zone_features, f"feature_{name}")
+         for name in (LATE_INDEX,) + EARLY_INDICES}
+    early = sum(z[name] for name in EARLY_INDICES) / len(EARLY_INDICES)
+    return z[LATE_INDEX] - early
+
+
+def multi_index_level(zone_features, context=None):
+    """Diagnostic, not a signal: all three residuals as one level.
+
+    Not "divergence", so this is not S3 and it is not registered. It exists so
+    that a null result on S3 cannot be read as a null result on "NDRE and NDWI
+    carry nothing." Step 5, Decision 18, for the same reason B2 reports two
+    periods at Step 4.
+    """
+    names = (LATE_INDEX,) + EARLY_INDICES
+    z = [rank.zscore_within_field(zone_features, f"feature_{name}") for name in names]
+    return -sum(z) / len(z)

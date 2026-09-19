@@ -227,11 +227,20 @@ def outcome_views(con, min_prior_years=config.MIN_PRIOR_YEARS,
         WHERE bin BETWEEN {label_lo} AND {label_hi} AND n_label_years >= {floor}
         GROUP BY zone_id, field_id, year
     """)
+    # One row, not three aggregates. S3 compares indices against each other, so
+    # they have to describe the same observation; picking each by its own
+    # arg_max lets a null in one index silently pull it back to an earlier date
+    # while the others stay put, and the "divergence" then measures the
+    # calendar. Step 5, Decision 17. This also removes an inconsistency that
+    # was already here, where feature_ndvi came from arg_max and feature_bin
+    # from a separate max(bin), which name different cells once a null exists.
+    features = ", ".join(f"residual_{name} AS feature_{name}" for name in INDICES)
     con.execute(f"""
         CREATE OR REPLACE VIEW zone_year_feature AS
-        SELECT zone_id, field_id, year, any_value(cdl_code) AS cdl_code,
-               arg_max(residual_ndvi, bin) AS feature_ndvi, max(bin) AS feature_bin
+        SELECT zone_id, field_id, year, cdl_code, {features}, bin AS feature_bin
         FROM baseline
         WHERE bin BETWEEN {feat_lo} AND {feat_hi} AND n_prior_years >= {floor}
-        GROUP BY zone_id, field_id, year
+        QUALIFY row_number() OVER (
+            PARTITION BY zone_id, field_id, year ORDER BY bin DESC
+        ) = 1
     """)

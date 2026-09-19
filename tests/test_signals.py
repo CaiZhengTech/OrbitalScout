@@ -171,3 +171,100 @@ def test_s2_leaves_a_zone_with_no_neighbourhood_unscored():
 def test_s2_is_not_registered_until_the_admission_rule_admits_it():
     """CLAUDE.md: building a signal does not entitle it to ship."""
     assert signals.s2_spatial_anomaly not in signals.SIGNALS
+
+
+# --- S3, multi-index divergence -------------------------------------------
+#
+# The first signal to read NDRE and NDWI. Its whole content is a contrast
+# between indices, so the sign convention and the standardisation are the two
+# things that would fail silently: either would still produce a ranked list.
+
+def three_index(rows, field_id=1, year=2023):
+    """rows: (ndvi, ndre, ndwi) residuals, one per zone."""
+    return pd.DataFrame({
+        "zone_id": range(100, 100 + len(rows)),
+        "field_id": field_id,
+        "year": year,
+        "feature_ndvi": [r[0] for r in rows],
+        "feature_ndre": [r[1] for r in rows],
+        "feature_ndwi": [r[2] for r in rows],
+    })
+
+
+def test_s3_fires_when_the_early_indices_read_worse_than_ndvi():
+    """The stated mechanism: water and chlorophyll move before biomass.
+
+    Zone 100 has a healthy NDVI and poor NDRE and NDWI, which is the early
+    warning case. Zone 102 is the reverse and is not urgent by this signal.
+    """
+    frame = three_index([(0.2, -0.2, -0.2), (0.0, 0.0, 0.0), (-0.2, 0.2, 0.2)])
+    scores = signals.s3_multi_index_divergence(frame)
+    assert scores.iloc[0] > scores.iloc[1] > scores.iloc[2]
+
+
+def test_s3_ignores_a_zone_that_is_merely_bad_in_every_index():
+    """Three indices agreeing is S1's job. S3 is the contrast, so it reads flat.
+
+    Every zone here is worse in all three by the same amount, so after
+    standardising within the field-year the contrast is identical for all.
+    """
+    frame = three_index([(-0.3, -0.3, -0.3), (0.0, 0.0, 0.0), (0.3, 0.3, 0.3)])
+    scores = signals.s3_multi_index_divergence(frame)
+    assert scores.std() == pytest.approx(0.0), "S3 responded to level, not divergence"
+
+
+def test_s3_standardises_each_index_before_contrasting_them():
+    """NDWI varies on a different scale; raw differencing would let it dominate.
+
+    NDVI spans 0.1 and NDWI spans 1.0, in the same direction and same order.
+    Standardised they agree exactly, so the contrast must be flat. Subtracting
+    raw values would make NDWI's larger spread swamp NDVI.
+    """
+    frame = three_index([(-0.05, -0.05, -0.5), (0.0, 0.0, 0.0), (0.05, 0.05, 0.5)])
+    scores = signals.s3_multi_index_divergence(frame)
+    assert scores.std() == pytest.approx(0.0), "an index's raw scale leaked in"
+
+
+def test_s3_contrasts_within_each_field_year_separately():
+    frame = pd.concat([
+        three_index([(0.2, -0.2, -0.2), (0.0, 0.0, 0.0)], field_id=1),
+        three_index([(20.0, -20.0, -20.0), (0.0, 0.0, 0.0)], field_id=2),
+    ], ignore_index=True)
+    scores = signals.s3_multi_index_divergence(frame)
+    assert scores.iloc[0] == pytest.approx(scores.iloc[2])
+
+
+def test_s3_weights_the_two_early_indices_equally():
+    """NDRE and NDWI are averaged, so neither alone decides the contrast."""
+    frame = three_index([(0.0, -0.3, 0.3), (0.0, 0.3, -0.3), (0.0, 0.0, 0.0)])
+    scores = signals.s3_multi_index_divergence(frame)
+    assert scores.iloc[0] == pytest.approx(scores.iloc[1])
+
+
+def test_s3_leaves_a_zone_unscored_when_an_index_is_missing():
+    frame = three_index([(0.2, np.nan, -0.2), (0.0, 0.0, 0.0), (-0.2, 0.2, 0.2)])
+    scores = signals.s3_multi_index_divergence(frame)
+    assert pd.isna(scores.iloc[0])
+    assert scores.notna().sum() == 2
+
+
+def test_s3_is_not_registered_until_the_admission_rule_admits_it():
+    assert signals.s3_multi_index_divergence not in signals.SIGNALS
+
+
+def test_the_multi_index_diagnostic_ranks_the_worst_zone_first():
+    """It is reported as a comparator, so its sign has to be pinned.
+
+    Not a signal and not registered, but a flipped sign here would put the
+    healthiest zones at the top of a table in RESULTS.md and read as a result.
+    """
+    frame = three_index([(-0.3, -0.3, -0.3), (0.0, 0.0, 0.0), (0.3, 0.3, 0.3)])
+    scores = signals.multi_index_level(frame)
+    assert scores.iloc[0] > scores.iloc[1] > scores.iloc[2]
+
+
+def test_the_multi_index_diagnostic_uses_all_three_indices():
+    """S3 is blind to level by design; this one must not be."""
+    frame = three_index([(-0.3, -0.3, -0.3), (0.0, 0.0, 0.0), (0.3, 0.3, 0.3)])
+    assert signals.multi_index_level(frame).std() > 0
+    assert signals.s3_multi_index_divergence(frame).std() == pytest.approx(0.0)

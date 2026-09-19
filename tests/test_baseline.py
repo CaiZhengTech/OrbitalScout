@@ -389,3 +389,79 @@ def test_feature_window_ends_before_the_gap_and_label_window_starts_after_it():
     assert config.FEATURE_BINS[1] < config.GAP_BINS[0]
     assert config.GAP_BINS[0] <= config.GAP_BINS[1]
     assert config.GAP_BINS[1] < config.LABEL_BINS[0]
+
+
+# --- all three indices must come from one observation. Step 5, Decision 17 ---
+#
+# S3 compares indices against each other. If they are picked from different
+# dates the comparison measures the calendar, not the crop, and nothing raises.
+
+def three_index_con(rows, gdd):
+    """rows: (year, bin, ndvi, ndre, ndwi) for zone 101. 102 and 103 hold 0.5.
+
+    The neighbours carry 0.5 in every index, so the field median is 0.5 and
+    zone 101's relative index is its value minus 0.5 in each index separately.
+    """
+    obs = []
+    for year, b, ndvi, ndre, ndwi in rows:
+        date = f"{year}-06-{b + 1:02d}"
+        obs += [(101, 1, year, date, ndvi, ndre, ndwi),
+                (102, 1, year, date, 0.5, 0.5, 0.5),
+                (103, 1, year, date, 0.5, 0.5, 0.5)]
+
+    con = duckdb.connect()
+    zone_obs = pd.DataFrame(obs, columns=["zone_id", "field_id", "year", "date",
+                                          "ndvi", "ndre", "ndwi"])
+    zone_obs["n_valid"] = 9
+    con.register("zone_obs", zone_obs)
+    con.register("fields", pd.DataFrame(
+        [{"field_id": 1, **{f"crop_{y}": CORN for y in range(2018, 2026)}}]))
+    con.register("zones", pd.DataFrame([(z, 1) for z in (101, 102, 103)],
+                                       columns=["zone_id", "field_id"]))
+    con.register("gdd", pd.DataFrame([(CORN, d, g) for d, g in gdd.items()],
+                                     columns=["cdl_code", "date", "gdd"]))
+    return outcomes(build(con))
+
+
+def history_then(last_year_row, years=range(2018, 2022), bins=(5, 6)):
+    """Four flat prior years so the floor of 3 is met, then one varying year."""
+    rows = [(y, b, 0.6, 0.6, 0.6) for y in years for b in bins]
+    rows.append(last_year_row)
+    gdd = {f"{y}-06-{b + 1:02d}": b * 200 + 50
+           for y in list(years) + [last_year_row[0]] for b in bins}
+    return rows, gdd
+
+
+def feature_row(con, year=2022):
+    return con.execute(
+        "SELECT feature_ndvi, feature_ndre, feature_ndwi, feature_bin "
+        "FROM zone_year_feature WHERE zone_id = 101 AND year = ?", [year]
+    ).fetchone()
+
+
+def test_the_feature_carries_all_three_indices_from_the_same_bin():
+    """NDRE and NDWI were ingested at Step 1 and nothing read them until S3."""
+    rows, gdd = history_then((2022, 6, 0.9, 0.4, 0.2))
+    rows += [(2022, 5, 0.6, 0.6, 0.6)]
+    gdd["2022-06-06"] = 5 * 200 + 50
+    ndvi, ndre, ndwi, bin_used = feature_row(three_index_con(rows, gdd))
+    assert bin_used == 6
+    assert ndvi == pytest.approx(0.4 - 0.1)      # 0.9 - 0.5 relative, minus baseline 0.1
+    assert ndre == pytest.approx(-0.1 - 0.1)
+    assert ndwi == pytest.approx(-0.3 - 0.1)
+
+
+def test_a_null_index_in_the_top_cell_does_not_fall_back_to_an_earlier_date():
+    """The trap: NDVI from bin 6 and NDRE from bin 5 is a divergence across dates.
+
+    Bin 6 is the latest supported cell and its NDRE is missing. NDRE must come
+    back null, not silently from bin 5, where the zone read very differently.
+    """
+    rows, gdd = history_then((2022, 6, 0.9, None, 0.2))
+    rows += [(2022, 5, 0.1, 0.1, 0.1)]
+    gdd["2022-06-06"] = 5 * 200 + 50
+    ndvi, ndre, ndwi, bin_used = feature_row(three_index_con(rows, gdd))
+    assert bin_used == 6, "the chosen cell is still the latest supported one"
+    assert ndvi == pytest.approx(0.4 - 0.1)
+    assert ndwi == pytest.approx(-0.3 - 0.1)
+    assert ndre is None, "NDRE fell back to bin 5 and now describes another date"
