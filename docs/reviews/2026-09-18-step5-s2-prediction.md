@@ -101,3 +101,33 @@ the comparison population, against the primary label unless stated.
 A null result here is a reportable finding, not a failure. "S2 spatial anomaly
 did not improve lift over persistence and was cut" is what the admission rule is
 for, and `RESULTS.md` records it either way.
+
+---
+
+## Outcome, same day
+
+**S2 was cut.** S1+S2 scores 9.5% to 11.8% worse than S1 alone on lift over
+B1b, at all four budgets. Numbers in `RESULTS.md`.
+
+All three predictions held. The first held only barely: S2 alone measured lift
+1.99 over random at the 20-zone budget against a predicted range of 1.2 to 2.0,
+sitting at the top edge, and it would have failed the range at any tighter
+budget. That is recorded rather than rounded in our favour.
+
+Decision 16 said weights would not be searched if equal weights lost. They were
+not. The loss is about a tenth at every budget, so no weight short of putting
+almost nothing on S2 would change the verdict, and finding that weight by
+searching is the behaviour the decision existed to prevent.
+
+The mechanism check was written for a case that did not arise, and paid for
+itself anyway. It shows the damage is flat across history depth, so S2 dilutes
+S1 uniformly rather than trading a gain somewhere for a loss elsewhere. It also
+shows that only 973 zone-years of 1.8 million rest on the minimum three prior
+years, which means the "first-year problems with no history" case that Section 7
+uses to justify S2 is **empty by construction** in this evaluation: the
+`MIN_PRIOR_YEARS` floor removes those zones before S2 is consulted.
+
+So the cut is narrower than it looks. S2 is a dilutant where S1 works. It has
+not been shown to be useless on zones below the support floor, because that
+population was defined away at Step 2. Issue #20 records the untested case so
+the result is not over-claimed.
