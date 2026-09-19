@@ -28,6 +28,21 @@ def rank_within_field(scored, score_column="score"):
     return ranked.reset_index(drop=True)
 
 
+def budget_size(zone_years, zones=None, fraction=None):
+    """Zones a budget selects per field-year, without needing a ranking.
+
+    The evaluation has to know which field-years a budget covers in full, and
+    that must not depend on how any method happened to rank them. Same rounding
+    rule as `select_budget`, and a test pins the two together.
+    """
+    if (zones is None) == (fraction is None):
+        raise ValueError("pass exactly one of zones or fraction")
+    sizes = zone_years.groupby(["field_id", "year"]).size()
+    if zones is not None:
+        return sizes.clip(upper=int(zones))
+    return (sizes * float(fraction)).map(math.ceil).clip(lower=1)
+
+
 def select_budget(ranked, zones=None, fraction=None):
     """The top of each field-year's ranking under a scouting budget.
 

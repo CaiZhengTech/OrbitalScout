@@ -470,7 +470,140 @@ Measured against later years instead:
 
 This is a sanity check on the premise, not the evaluation. Whether the ranking is **correct** is precision@k against the label, and whether it beats the obvious alternatives is lift over B1a and B1b. Both are Step 4.
 
-## Step 4 onward
+## Step 4: the evaluation harness
 
-`[TBD]`. Evaluation harness not started.
+Run with `python scripts/step4_evaluate.py` on 2026-09-18. Gates G-1 and G-2 both pass. This is the step the project was built to reach: the ranking is measured against the nulls under the protocol frozen in `SPEC.md` Section 10 before any data was touched.
+
+### Population
+
+**2,088,039 labelled zone-years** across the three held-out seasons. Realised base rate **0.1020** under both labels, not the nominal 0.10, because the positive count is `ceil(0.10n)` and rounds up on every field-year that ten does not divide.
+
+Every method is scored on the same zone-years, because comparing one method on its own scorable subset against another on a different subset is not a comparison. Coverage before the intersection:
+
+| method | share it can score |
+|---|---|
+| S1 | 100.0% |
+| B1a, B2 (both variants, every k) | 100.0% |
+| B1b | 87.4% |
+
+The intersection is **1,825,396 zone-years (87.4%) over 8,065 field-years**, limited entirely by B1b: a zone whose crop has not been grown in a prior year has no same-crop residual to persist, and is left unscored rather than given a zero.
+
+### G-1, blocked splits
+
+| held-out year | fields | field overlaps with any fit set | partition |
+|---|---|---|---|
+| 2023 | 2,375 | 0 | exact |
+| 2024 | 2,797 | 0 | exact |
+| 2025 | 2,893 | 0 | exact |
+
+**Field blocking had nothing to separate at this rung, and that is reported rather than dressed up.** Taking an inventory of what Step 4 actually fits turns up one object, B2's k-means, and it is fit within a single field. Nothing pools across fields until rung 2. The split and its tests are in place because a leak here invalidates every number and writing them after the first pooled statistic exists is how leaks happen, but G-1 passing on this rung is a statement about the split function, not evidence that anything was held apart.
+
+### The headline: S1 against the anomaly-persistence null
+
+Primary label, at the 20-zone scouting budget, pooled over all field-years:
+
+| method | precision@20 | of ceiling | recall | FPR | lift over random |
+|---|---|---|---|---|---|
+| **S1 temporal anomaly** | **0.3133** | 0.482 | 0.2478 | 0.0617 | 3.07 |
+| B1b anomaly persistence | 0.2002 | 0.308 | 0.1584 | 0.0719 | 1.96 |
+| B2 k-means, in-season, k=7 | 0.2213 | 0.340 | 0.1751 | 0.0700 | 2.17 |
+| B1a level persistence | 0.1502 | 0.231 | 0.1188 | 0.0764 | 1.47 |
+| B2 k-means, historical, k=7 | 0.1461 | 0.225 | 0.1156 | 0.0768 | 1.43 |
+
+Ceiling on precision 0.6504, ceiling on lift 6.37.
+
+Lift of S1 over each null, primary label, all field-years. B2 is taken at its best k, which was 7 in every cell:
+
+| budget | over B1a | over B1b | over B2 historical | over B2 in-season |
+|---|---|---|---|---|
+| 20 zones | 2.086 | **1.565** | 2.145 | 1.416 |
+| 5% of field | 2.425 | **1.837** | 2.532 | 1.468 |
+| 10% of field | 2.256 | **1.688** | 2.329 | 1.421 |
+| 20% of field | 1.937 | **1.469** | 1.978 | 1.363 |
+
+**The persistence null was beaten, at every budget.** `CLAUDE.md` pre-committed to a roughly one-in-three chance of the opposite outcome and to reporting it as the headline if it happened. It did not happen.
+
+### Per-year spread
+
+`SPEC.md` Section 10 requires each held-out season separately, reported as a spread rather than a point, so that a year which happened to be easy cannot carry the result.
+
+| year | zone-years | S1 precision@20 | ceiling | B1b precision@20 | S1 / B1b | S1 / B2 in-season |
+|---|---|---|---|---|---|---|
+| 2023 | 523,458 | 0.3200 | 0.6456 | 0.1983 | 1.614 | 1.449 |
+| 2024 | 640,207 | 0.3468 | 0.6526 | 0.2005 | 1.730 | 1.400 |
+| 2025 | 661,731 | 0.2754 | 0.6522 | 0.2016 | 1.366 | 1.404 |
+
+S1 leads B1b in every year. The spread on that lift is **1.37 to 1.73**, and 2025 is the weakest season by a clear margin while B1b itself barely moves across the three. The spread is the reported quantity.
+
+### The thesis, stated as a measurement
+
+The claim of the project is that a within-field relative residual finds *anomalous* underperformance, where a commercial index map finds *permanently poor ground*. That predicts a large margin on the residual label and a small one on the level label. Measured, at the 20-zone budget:
+
+| label | S1 | B2 in-season k=7 | B1a | S1 over B2 | S1 over B1a |
+|---|---|---|---|---|---|
+| primary, residual | 0.3133 | 0.2213 | 0.1502 | **1.416** | **2.086** |
+| secondary, level | 0.2928 | 0.2669 | 0.2478 | **1.097** | **1.182** |
+
+On the level label S1's margin over the best commercial baseline collapses from 42% to 10%, and its margin over level persistence from 109% to 18%. **That collapse is the contribution.** The detection is not novel and is not claimed to be; what the evaluation shows is that the two labels rank methods differently, and that a system measured only on the level label would look almost indistinguishable from a k-means zone map.
+
+B1a moves the other way, from 0.1502 on the residual to 0.2478 on the level, which is the same fact seen from the baseline's side.
+
+### Where the pre-registered prediction was wrong
+
+Section 10 predicted that "B1a is expected to score at or near chance against the primary label, because the primary label subtracts the zone mean that B1a ranks on."
+
+**That was too strong.** B1a scores lift 1.47 over random on the primary label, well above chance. The direction of the prediction holds, since B1a is far weaker on the residual label (1.47) than on the level label (2.42), but the magnitude was wrong and the reason is identifiable: the primary label subtracts the *leave-one-year-out* baseline over the label window, while B1a ranks on the *strictly prior* baseline over the feature window. Those are different quantities estimated from different years over different growth stages, so the subtraction was never going to be exact and B1a keeps real signal.
+
+The prediction is left in `SPEC.md` unedited, and this paragraph is the record that it did not survive contact with the data.
+
+### The ceiling binds, and precision alone would be misread
+
+At the 20-zone budget a perfect ranker reaches **0.6504**, not 1.0. The reason is field-year size: median positives per field-year is **14** against a 20-zone budget, and **59.9% of field-years hold fewer positives than the budget has stops**. Those stops cannot be spent on positives because there are not enough to spend them on.
+
+So S1's 0.3133 is **48.2% of what was achievable**, not 31% of a notional 100%. At k = 20% of field the ceiling is **0.5058**, which is the 0.50 arithmetic cap that Step 4 Decision 10 predicted before the run: with a 10% base rate, a fifth of the field cannot be more than half positives.
+
+Reading the raw precision row across budgets without the ceiling would suggest S1 degrades from 0.4359 at k=5% to 0.2516 at k=20%. As a fraction of ceiling it goes 0.436, 0.350, 0.497: it does not degrade, it runs out of positives to find.
+
+### Field-years the budget swallows whole
+
+At a 20-zone budget, **1,491 of 8,065 field-years (18.5%)** hold 20 zones or fewer and are selected in full. There precision equals the base rate whatever the ranking does. They supply **10.8% of every zone precision@20 is computed over**.
+
+Excluding them:
+
+| population | S1 precision@20 | ceiling | S1 / B1b |
+|---|---|---|---|
+| all field-years | 0.3133 | 0.6504 | 1.565 |
+| field-years larger than the budget | 0.3343 | 0.7121 | 1.611 |
+
+The exclusion raises S1's precision by 6.7% and its lift over B1b by 2.9%, so leaving it in **understates** the ranker. It is a smaller effect than Decision 10 anticipated, because micro-averaging over selected zones already downweights small field-years: they are 18.5% of field-years but 0.9% of zone-years. Both populations are reported at every budget and both labels; the conclusions do not depend on the choice.
+
+### B2, and a comparison that was deliberately made harder
+
+B2 improves monotonically with k and is strongest at k=7 in **every** cell of every table, which is what a finer partition should do: more clusters means a less tied ranking. B2 is therefore always reported at its best k. Choosing a hyperparameter after seeing results is normally cheating; here it is cheating in the baseline's favour, which makes the claim against it conservative.
+
+The larger decision was the period B2 clusters. `SPEC.md` Section 10 names the method and not the period, and the first implementation clustered prior years only, matching a static multi-year management zone map. But S1 reads the current season, and commercial platforms ship in-season index maps too, so a history-only B2 is a handicapped commercial baseline. Both variants are reported, and the difference is not small:
+
+| comparison | lift of S1, 20 zones |
+|---|---|
+| over B2 historical, k=7 | 2.145 |
+| over B2 in-season, k=7 | **1.416** |
+
+The fair comparison costs a third of the headline. The weaker number is the one that would have been easier to publish, which is why it is not the one reported.
+
+### G-2
+
+`SPEC.md` gate G-2 requires the ranker to beat random at precision@10% on the primary label. S1 scores 0.3488 against a measured base rate of 0.1020, a lift of **3.42**. Passed.
+
+### Limitations
+
+- The label is a proxy, not independent ground truth. It is a within-field-year decile of a modelled residual, so this measures whether the ranking finds the zones the residual calls worst, not whether a scout would find something wrong there. Section 10 says so and it remains true.
+- The temporal gap is a single 200 GDD bin, bin 7 at R1 silking. Features come overwhelmingly from bin 6, immediately before it. That is the gap the frozen protocol specifies, and it is short.
+- S1 has access to current-season observations that B1a, B1b and the historical B2 do not. For the persistence nulls that asymmetry is the whole experiment, since the question is whether in-season imagery adds anything to what last year already told you. The in-season B2 exists so that the commercial comparison does not inherit the same asymmetry.
+- Uncertainty intervals are not reported. Where they are added they must be resampled over fields, never zones: a zone-level bootstrap over 1.8 million spatially autocorrelated rows would produce an interval tight enough to be a lie.
+- Timing, for reproduction rather than as a result: the first run took about twelve minutes in `load` against a cold page cache and eight seconds warm. Scoring is about eleven minutes, almost all of it the twelve k-means sweeps, and is cached in `data/eval/scored.parquet`.
+
+## Step 5 onward
+
+`[TBD]`. Signals S2 through S6 not started. The project is shippable as of Step 4.
+
 
